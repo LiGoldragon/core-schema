@@ -1,0 +1,26 @@
+[package]
+name         = "core-schema"
+version      = "0.1.0"
+edition      = "2024"
+rust-version = "1.85"
+license      = "MIT OR Apache-2.0"
+repository   = "https://github.com/LiGoldragon/core-schema"
+description  = "The first real stringless Core schema layer and the first real Textual form (TextualSchema): stringless CoreSchema value types, the universe bridge to structural-codec with Core-derived positional signatures, and the schema-text to CoreSchema round-trip."
+publish      = false
+
+[lib]
+name = "core_schema"
+path = "src/lib.rs"
+
+[dependencies]
+content-identity = { git = "https://github.com/LiGoldragon/content-identity.git", rev = "6cc0408cdb96f174cc8fdf6ca23420038de28450" }
+name-table       = { git = "https://github.com/LiGoldragon/name-table.git", rev = "c3237f77c087e6feab49d6cf34971cebc14a11e6" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "a4e8c6df84e6a487ca6fe2f3641f9bafd0b0d8c8" }
+structural-codec = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "104f92454a5ba88b376fa706a9fe38c4a4b65ee0" }
+rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
+thiserror        = "2"
+
+[lints.rust]
+unsafe_code = "forbid"
+unused      = { level = "warn", priority = -1 }
+dead_code   = "warn"
