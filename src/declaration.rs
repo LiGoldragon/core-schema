@@ -6,7 +6,7 @@
 //! [`NameTable`]: name_table::NameTable
 
 use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
-use name_table::Identifier;
+use name_table::{Identifier, NameResolver, NameTableError};
 
 use crate::error::CoreIdentityError;
 use crate::reference::CoreReference;
@@ -184,6 +184,20 @@ impl CoreField {
 
     pub fn reference(&self) -> &CoreReference {
         &self.reference
+    }
+
+    /// Whether this field's stored name is exactly the one its reference derives —
+    /// the single predicate that decides text-name elision. When true, the name may
+    /// be elided in text (and re-derived on decode) or re-derived on Nomos lowering;
+    /// when false the name is explicit and must be carried verbatim. This is the one
+    /// home for the derive-versus-preserve decision shared by the textual codec
+    /// ([`crate::textual`]) and Nomos field lowering, so the two never drift.
+    pub fn name_is_derivable<Resolver: NameResolver + ?Sized>(
+        &self,
+        names: &Resolver,
+    ) -> Result<bool, NameTableError> {
+        let stored = names.resolve(self.identifier)?;
+        Ok(stored.as_str() == self.reference.derived_field_name(names)?)
     }
 }
 

@@ -265,13 +265,11 @@ impl TextualSchema {
         field: &CoreField,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
-        let derived = field.reference().derived_field_name(names)?;
         let type_id = field
             .reference()
             .type_atom_identifier(names)
             .ok_or(TextualError::ReifyShape("field type reference"))?;
-        let stored = names.resolve(field.identifier())?.as_str().to_owned();
-        let chosen = if stored == derived {
+        let chosen = if field.name_is_derivable(names)? {
             // The name equals the type's snake_case — elide it.
             StructuralValue::chosen(0, StructuralValue::Atom(type_id))
         } else {

@@ -65,25 +65,27 @@ pub enum CoreReference {
 
 impl CoreReference {
     /// The `snake_case` field name this reference derives, used to decide whether a
-    /// field's text name may be elided (the derived-name rule). For a `Plain`
-    /// reference it is the `snake_case` of the referenced type's name; for a scalar
-    /// leaf it is the scalar's own lowercase spelling. Resolving a `Plain` name goes
-    /// through the table, so a rename of the referenced type moves the derived name
-    /// with no stored name data — exactly the ground-truth behaviour.
+    /// field's text name may be elided (the derived-name rule). It is the
+    /// [`field_name`](Name::field_name) of the type name this reference presents in
+    /// text ([`type_name`](Self::type_name)): the `snake_case` of a `Plain`
+    /// reference's resolved name, or of a scalar leaf's own type spelling. Resolving
+    /// a `Plain` name goes through the table, so a rename of the referenced type
+    /// moves the derived name with no stored name data — exactly the ground-truth
+    /// behaviour.
+    ///
+    /// Single home for the derived-name spelling. Because it delegates to
+    /// [`type_name`](Self::type_name), the derived name always agrees with the type
+    /// spelling the reference shows in text. The scalar cases previously carried
+    /// hardcoded lowercase spellings; every one already matched the type-name route
+    /// except the string leaf, whose text spelling is `Text` (not `String`), so an
+    /// elided string field now derives `text` rather than `string`. LEAN: this
+    /// reconciles the codec/lowering divergence toward the type-name spelling and is
+    /// revisable by changing the string leaf's [`type_name`](Self::type_name).
     pub fn derived_field_name<Resolver: NameResolver + ?Sized>(
         &self,
         names: &Resolver,
     ) -> Result<String, NameTableError> {
-        Ok(match self {
-            Self::String => "string".to_owned(),
-            Self::Integer => "integer".to_owned(),
-            Self::Boolean => "boolean".to_owned(),
-            Self::Bytes => "bytes".to_owned(),
-            Self::Plain(identifier) => names.resolve(*identifier)?.field_name(),
-            Self::SingleTypeApplication { argument, .. } => argument.derived_field_name(names)?,
-            Self::MultiTypeApplication { .. } => "map".to_owned(),
-            Self::ValueApplication { .. } => "bytes".to_owned(),
-        })
+        Ok(self.type_name(names)?.field_name())
     }
 
     /// Classify a type name met at a reference position into a by-kind reference:
