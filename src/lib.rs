@@ -57,5 +57,6 @@ pub use reference::{
 };
 pub use textual::TextualSchema;
 pub use universe::{
-    CORE_UNIVERSE, CoreUniverse, CoreUniverseBuilder, MemberKind, ScalarSlot, UniverseType,
+    AssignedKind, AssignedMember, CORE_UNIVERSE, CoreUniverse, CoreUniverseBuilder, MemberKind,
+    ScalarSlot, UniverseType,
 };

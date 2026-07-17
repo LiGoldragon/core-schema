@@ -23,7 +23,7 @@ use structural_codec::ids::{
 };
 use structural_codec::table::AddressedStructuralTable;
 
-use crate::declaration::{CoreDeclaration, CoreType};
+use crate::declaration::{CoreDeclaration, CoreSchema, CoreType};
 use crate::error::UniverseError;
 use crate::reference::CoreReference;
 
@@ -110,6 +110,77 @@ impl CoreUniverse {
     /// Every registered universe type, in allocation order.
     pub fn members(&self) -> &[UniverseType] {
         &self.members
+    }
+
+    /// The schema-whole this universe declares: its declaration members, in ascending
+    /// id order, as a [`CoreSchema`]. The primitives and the `Field` meta-type are the
+    /// universe's fixed substrate, not schema declarations, so they are not included.
+    /// Under the authority-provided construction path ([`Self::from_assignment`]) the
+    /// registration order already ascends by assigned local, so this schema's
+    /// declaration order — and thus its content identity — is a deterministic function
+    /// of the authority's assignment, never of parse order.
+    pub fn declared_schema(&self) -> CoreSchema {
+        let mut ordered: Vec<&UniverseType> = self.members.iter().collect();
+        ordered.sort_by_key(|member| member.id);
+        let declarations = ordered
+            .into_iter()
+            .filter_map(|member| match member.kind() {
+                MemberKind::Declaration(declaration) => Some(declaration.clone()),
+                MemberKind::Primitive | MemberKind::FieldMeta => None,
+            })
+            .collect();
+        CoreSchema::new(declarations)
+    }
+
+    /// Build a universe from central-authority-assigned identities — the
+    /// authority-provided construction path. Members are registered in ascending
+    /// assigned-local order and their names interned in that same canonical order, so
+    /// the id registry, the name indices, and every declaration's own identifier are a
+    /// deterministic function of the assignment alone, never of the order an ingestion
+    /// parsed its declarations. Two ingestions of one declared schema that received the
+    /// same assignment therefore build byte-identical Core values — the identity
+    /// keystone realized at the schema layer, replacing parse-order interning.
+    ///
+    /// The self-contained [`CoreUniverseBuilder`] path (see [`crate::fixture`]) is
+    /// retained as the local / offline mode.
+    ///
+    /// LEAN `authority-provided-universe` (realizes v2 keystone / L5 at the schema
+    /// layer): a universe is built from authority assignments keyed by declared name,
+    /// with names canonically interned by ascending assigned local, and each
+    /// declaration re-stamped with its canonical name identifier. Field names and
+    /// name-bearing (`Plain`) references inside declarations are carried through as
+    /// supplied — canonicalising those too is the follow-up equivalence wiring
+    /// (schema-engine / native ingestion). Revision trigger: that wiring landing, or the
+    /// authority returning explicit per-name index assignments so the NameTable order is
+    /// dictated rather than derived.
+    pub fn from_assignment(
+        universe: CoreUniverseId,
+        members: Vec<AssignedMember>,
+    ) -> Result<Self, UniverseError> {
+        let mut ordered = members;
+        ordered.sort_by_key(AssignedMember::local);
+        for adjacent in ordered.windows(2) {
+            if adjacent[0].local == adjacent[1].local {
+                return Err(UniverseError::DuplicateAssignedIdentity(adjacent[0].local));
+            }
+        }
+        let mut builder = CoreUniverseBuilder::new();
+        for member in ordered {
+            let id = ScopedCoreTypeId::new(universe, member.local);
+            let identifier = builder.intern_name(member.name);
+            match member.kind {
+                AssignedKind::ScalarPrimitive(slot) => builder.primitive_at(id, identifier, slot),
+                AssignedKind::LeafPrimitive => builder.leaf_at(id, identifier),
+                AssignedKind::FieldMeta => builder.field_meta_at(id, identifier),
+                AssignedKind::Declaration(core_type) => {
+                    builder.declaration(
+                        id,
+                        CoreDeclaration::public(core_type.with_identifier(identifier)),
+                    );
+                }
+            }
+        }
+        Ok(builder.build(universe))
     }
 
     fn member(&self, id: ScopedCoreTypeId) -> Result<&UniverseType, UniverseError> {
@@ -238,6 +309,55 @@ impl CoreUniverse {
     }
 }
 
+/// The kind of one central-authority-assigned universe member, mirroring the
+/// builder's registration verbs so a single assignment covers the scalar leaf
+/// primitives, the `Field` meta-type, and user declarations. A closed typed record:
+/// the registration follows from the kind, never from a flag.
+#[derive(Clone, Debug)]
+pub enum AssignedKind {
+    /// A scalar leaf primitive that is a reference target, filling a scalar slot.
+    ScalarPrimitive(ScalarSlot),
+    /// A scalar leaf primitive that is never a reference target — e.g. `Float`.
+    LeafPrimitive,
+    /// The `Field` meta-type.
+    FieldMeta,
+    /// A user declaration; its own name identifier is re-stamped to the canonically
+    /// interned one when the universe is built.
+    Declaration(CoreType),
+}
+
+/// One central-authority-assigned universe member: the local identity the authority
+/// minted or bound for it, the declared name it carries, and its kind. A universe
+/// built from a set of these ([`CoreUniverse::from_assignment`]) is a deterministic
+/// function of the assignment, so two ingestions of one declared schema bind identical
+/// identities whatever order each parsed.
+#[derive(Clone, Debug)]
+pub struct AssignedMember {
+    local: u32,
+    name: Name,
+    kind: AssignedKind,
+}
+
+impl AssignedMember {
+    pub fn new(local: u32, name: Name, kind: AssignedKind) -> Self {
+        Self { local, name, kind }
+    }
+
+    /// The local identity the authority assigned — the `local` half of the member's
+    /// [`ScopedCoreTypeId`] and the key its canonical registration order sorts by.
+    pub fn local(&self) -> u32 {
+        self.local
+    }
+
+    pub fn name(&self) -> &Name {
+        &self.name
+    }
+
+    pub fn kind(&self) -> &AssignedKind {
+        &self.kind
+    }
+}
+
 /// Builds a [`CoreUniverse`], owning the shared [`NameTable`] so declarations are
 /// constructed against the same identifier space the universe resolves through.
 #[derive(Debug, Default)]
@@ -265,6 +385,31 @@ impl CoreUniverseBuilder {
     /// Intern a name into the shared table.
     pub fn intern(&mut self, name: &str) -> Identifier {
         self.names.intern(Name::new(name))
+    }
+
+    /// Intern an owned [`Name`] into the shared table. The authority-provided path
+    /// interns in canonical assigned-id order, so it controls the interning order
+    /// directly rather than through the `&str` convenience above.
+    pub fn intern_name(&mut self, name: Name) -> Identifier {
+        self.names.intern(name)
+    }
+
+    /// Register a scalar leaf primitive that is a reference target at an already
+    /// interned identifier, filling its scalar slot.
+    pub fn primitive_at(&mut self, id: ScopedCoreTypeId, name: Identifier, slot: ScalarSlot) {
+        self.scalars.insert(slot, id);
+        self.register(id, name, MemberKind::Primitive);
+    }
+
+    /// Register a scalar leaf primitive that is never a reference target at an already
+    /// interned identifier (fills no scalar slot).
+    pub fn leaf_at(&mut self, id: ScopedCoreTypeId, name: Identifier) {
+        self.register(id, name, MemberKind::Primitive);
+    }
+
+    /// Register the `Field` meta-type at an already interned identifier.
+    pub fn field_meta_at(&mut self, id: ScopedCoreTypeId, name: Identifier) {
+        self.register(id, name, MemberKind::FieldMeta);
     }
 
     fn register(&mut self, id: ScopedCoreTypeId, name: Identifier, kind: MemberKind) {

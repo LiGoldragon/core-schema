@@ -46,6 +46,10 @@ pub enum UniverseError {
     #[error("the structural table holds no entry for Core type {0:?}")]
     TableEntryAbsent(ScopedCoreTypeId),
     #[error(
+        "the authority assignment registers two members at the same local identity {0}; an identity names exactly one thing"
+    )]
+    DuplicateAssignedIdentity(u32),
+    #[error(
         "a by-kind type application ({0}) has no allocated universe type in this proof-of-concept universe"
     )]
     UnsupportedApplication(&'static str),

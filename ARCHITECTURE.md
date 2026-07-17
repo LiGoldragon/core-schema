@@ -68,6 +68,41 @@ The table's `core_layout_identity` is the schema's own `CoreSchema` content hash
 tying each structural table to the exact stringless Core it targets while the table
 identity itself stays **excluded** from Core value identity (law 4).
 
+### Two construction modes: offline fixture vs authority-provided
+
+`CoreUniverse` is built two ways, and the distinction is load-bearing for the
+identity keystone (`primary-56d1.11`, design v2):
+
+- **Local / offline mode** — `CoreUniverseBuilder` interns names in call order and
+  the caller assigns type ids (the `fixture` family's hardcoded fixture ids). This is
+  the self-contained path the existing tests use. It is a **lean**: because interning
+  is parse-order, two ingestions of one declared schema that parse its declarations in
+  different orders assign different name indices and declaration orders, so their Core
+  values — hence content identities — diverge. That is exactly the "same thing,
+  re-ID'ed" defect the keystone forbids.
+- **Authority-provided mode** — `CoreUniverse::from_assignment(universe, members)`
+  takes a central-authority-minted universe id and a set of `AssignedMember`s (each a
+  declared name, its authority-assigned local, and its kind). It registers members in
+  ascending assigned-local order, interns names in that same canonical order, and
+  re-stamps each declaration's own identifier to the canonically-interned one. The
+  built universe — its id registry, name indices, declaration order, and declared
+  schema's content identity — is therefore a **deterministic function of the
+  assignment alone**, never of parse order (`tests/authority_assignment.rs`). This is
+  the schema-side plumbing the sema-storage identity authority feeds: the authority
+  (one logical seat per deployment, in sema — settled, not a lean) binds the same
+  declared schema to the same identities across ingestions and processes, and this
+  path turns those assignments into byte-stable Core.
+
+  LEAN `authority-provided-universe`: `from_assignment` canonicalises the universe id,
+  type ids, name interning order, and each declaration's own name identifier. It does
+  **not** yet canonicalise field names or name-bearing (`Plain`) references inside
+  declarations; a schema whose declarations cross-reference by name still needs those
+  identifiers re-stamped for full cross-parse-order content-hash equivalence. That
+  re-stamp — and the front-end wiring that computes an `AssignedMember` set from parsed
+  schema text through a bind-or-mint call to the authority — is the **follow-up
+  equivalence slice** (schema-engine / native ingestion), deliberately left out here.
+  Revision trigger: that wiring landing.
+
 ### The Core/text granularity split
 
 A struct's Core `signature` records its fields' **referenced types**

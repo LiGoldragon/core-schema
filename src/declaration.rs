@@ -221,6 +221,26 @@ impl CoreType {
             Self::Enumeration(enumeration) => enumeration.variants().len(),
         }
     }
+
+    /// This type with its own name identifier replaced, the rest of its shape kept.
+    /// The authority-provided universe path
+    /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
+    /// uses it to re-stamp a declaration's name with the canonically-interned
+    /// identifier, so the declaration's own identity is a deterministic function of the
+    /// authority's assignment rather than of parse-order interning.
+    pub fn with_identifier(&self, identifier: Identifier) -> Self {
+        match self {
+            Self::Newtype(newtype) => {
+                Self::Newtype(CoreNewtype::new(identifier, newtype.reference().clone()))
+            }
+            Self::Struct(structure) => {
+                Self::Struct(CoreStruct::new(identifier, structure.fields().to_vec()))
+            }
+            Self::Enumeration(enumeration) => {
+                Self::Enumeration(CoreEnum::new(identifier, enumeration.variants().to_vec()))
+            }
+        }
+    }
 }
 
 /// A newtype declaration: a single wrapped reference.
