@@ -69,14 +69,39 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
         .decode_document(SPIRIT_MIN, &mut names)
         .expect("decode the whole document");
 
-    // Thirteen type declarations; two interface entries on each side.
+    // Thirteen data-type declarations plus the two interface roots.
     assert_eq!(
-        schema.declarations().len(),
+        schema.data_declarations().count(),
         13,
         "every type declaration decoded"
     );
-    assert_eq!(schema.input().entries().len(), 2, "two input mail types");
-    assert_eq!(schema.output().entries().len(), 2, "two output mail types");
+    assert_eq!(
+        schema.declarations().len(),
+        15,
+        "the substrate holds the data declarations and both interface roots"
+    );
+    let CoreType::Enumeration(input_root) =
+        schema.input().expect("an input interface root").value()
+    else {
+        panic!("the input interface root is an enumeration");
+    };
+    let CoreType::Enumeration(output_root) =
+        schema.output().expect("an output interface root").value()
+    else {
+        panic!("the output interface root is an enumeration");
+    };
+    assert_eq!(input_root.variants().len(), 2, "two input mail types");
+    assert_eq!(output_root.variants().len(), 2, "two output mail types");
+    assert_eq!(
+        text(&names, schema.input().unwrap().identifier()),
+        "Input",
+        "the input root carries the canonical Input name"
+    );
+    assert_eq!(
+        text(&names, schema.output().unwrap().identifier()),
+        "Output",
+        "the output root carries the canonical Output name"
+    );
 
     // A newtype over a Plain declared type.
     let CoreType::Newtype(record_payload) =
@@ -184,14 +209,14 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
         "Magnitude has seven variants"
     );
 
-    // The interface lines: each entry binds a mail-type name to a Plain payload.
-    let record = &schema.input().entries()[0];
+    // The interface roots: each variant binds a mail-type name to a Plain payload.
+    let record = &input_root.variants()[0];
     assert_eq!(text(&names, record.identifier()), "Record");
     assert!(
         matches!(record.payload(), Some(CoreReference::Plain(id)) if text(&names, *id) == "RecordPayload"),
         "input binds Record.RecordPayload",
     );
-    let record_accepted = &schema.output().entries()[0];
+    let record_accepted = &output_root.variants()[0];
     assert_eq!(text(&names, record_accepted.identifier()), "RecordAccepted");
     assert!(
         matches!(record_accepted.payload(), Some(CoreReference::Plain(id)) if text(&names, *id) == "RecordAcceptedPayload"),

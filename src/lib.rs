@@ -43,8 +43,8 @@ pub mod textual;
 pub mod universe;
 
 pub use declaration::{
-    CoreDeclaration, CoreEnum, CoreField, CoreInterface, CoreNewtype, CoreSchema, CoreSchemaDomain,
-    CoreStruct, CoreType, CoreVariant, Visibility,
+    CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreSchemaDomain, CoreStruct,
+    CoreType, CoreVariant, DeclarationRole, Visibility,
 };
 pub use document::{
     DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,

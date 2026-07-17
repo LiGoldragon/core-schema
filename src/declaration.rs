@@ -20,70 +20,81 @@ impl HashDomain for CoreSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
-            // Layout 2: `CoreSchema` grew the `input`/`output` interface slots of the
-            // six-slot document layout. A pre-interface value and a post-interface
-            // value hash under different layout versions, as the storage-schema
-            // change demands.
-            layout: LayoutVersion::new(2),
+            // Layout 3: interface-root-ness is now carried by [`DeclarationRole`] on
+            // each [`CoreDeclaration`] — the two protocol lines are ordinary
+            // declarations tagged `InterfaceInput` / `InterfaceOutput`, no longer a
+            // separate pair of interface slots (layout 2). A layout-2 value (slots)
+            // and a layout-3 value (role-tagged declarations) hash under different
+            // layout versions, as the storage-schema change demands.
+            layout: LayoutVersion::new(3),
         }
     }
 }
 
-/// A loaded schema as a whole: the stringless declaration substrate plus the
-/// document's input and output interface lines. Names live in the accompanying
-/// `NameTable` produced by the same decode.
+/// A loaded schema as a whole: one stringless declaration substrate in which the
+/// document's two protocol lines live as ordinary declarations, distinguished by
+/// their [`DeclarationRole`]. Names live in the accompanying `NameTable` produced
+/// by the same decode.
 ///
 /// The six-slot document layout (imports, input, output, types, generics, impls)
-/// lands its `types` block in [`declarations`](Self::declarations) and its two
-/// interface brackets in [`input`](Self::input) / [`output`](Self::output). The
-/// imports, generics, and impls slots are not yet modelled here; a document that
-/// carries content in them is rejected at decode rather than silently dropped.
-/// LEAN: `input`/`output` are captured as [`CoreInterface`] variant lists — the
-/// smallest faithful typed form, mirroring `schema-language`'s `CoreRoot::Enum`
-/// interface roots — pending a richer interface model.
+/// lands its `types` block and both interface brackets in the SAME
+/// [`declarations`](Self::declarations) list: an `input` / `output` bracket becomes
+/// a public enumeration declaration whose variants are the bracket's `Name.Payload`
+/// bindings, tagged [`DeclarationRole::InterfaceInput`] /
+/// [`DeclarationRole::InterfaceOutput`]; every `types` declaration is tagged
+/// [`DeclarationRole::DataType`]. This is the SINGLE
+/// representation of interface-root-ness shared by the native document decode and
+/// legacy ingestion, and the marker downstream Nomos lowering reads to gate
+/// interface-specific generation — the per-declaration lowering walk never sees the
+/// interface roots unless they are declarations, so a marker on the declaration is
+/// the only principled home. The imports, generics, and impls slots are not yet
+/// modelled here; a document that carries content in them is rejected at decode
+/// rather than silently dropped.
+///
+/// LEAN `interface-root-as-role`: interface roots are role-tagged declarations
+/// rather than a separate interface-slot type. Trigger to revisit: the accepted
+/// document-kind design review, which may reshape how interface roots and the
+/// document kinds relate.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct CoreSchema {
     declarations: Vec<CoreDeclaration>,
-    input: CoreInterface,
-    output: CoreInterface,
 }
 
 impl CoreSchema {
-    /// A schema with no interface lines — the declaration-only substrate.
+    /// A schema over the given declaration substrate. Interface roots, when present,
+    /// are the declarations carrying an interface [`DeclarationRole`].
     pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
-        Self {
-            declarations,
-            input: CoreInterface::empty(),
-            output: CoreInterface::empty(),
-        }
-    }
-
-    /// A whole document's substrate: the `types` declarations and the `input` /
-    /// `output` interface lines.
-    pub fn with_interfaces(
-        declarations: Vec<CoreDeclaration>,
-        input: CoreInterface,
-        output: CoreInterface,
-    ) -> Self {
-        Self {
-            declarations,
-            input,
-            output,
-        }
+        Self { declarations }
     }
 
     pub fn declarations(&self) -> &[CoreDeclaration] {
         &self.declarations
     }
 
-    /// The document's input interface line.
-    pub fn input(&self) -> &CoreInterface {
-        &self.input
+    /// The declarations that are ordinary data types — every declaration whose role
+    /// is [`DeclarationRole::DataType`], the `types` block of the document layout.
+    pub fn data_declarations(&self) -> impl Iterator<Item = &CoreDeclaration> {
+        self.declarations
+            .iter()
+            .filter(|declaration| declaration.role() == DeclarationRole::DataType)
     }
 
-    /// The document's output interface line.
-    pub fn output(&self) -> &CoreInterface {
-        &self.output
+    /// The document's input interface root — the declaration tagged
+    /// [`DeclarationRole::InterfaceInput`], if the document carried one.
+    pub fn input(&self) -> Option<&CoreDeclaration> {
+        self.role_declaration(DeclarationRole::InterfaceInput)
+    }
+
+    /// The document's output interface root — the declaration tagged
+    /// [`DeclarationRole::InterfaceOutput`], if the document carried one.
+    pub fn output(&self) -> Option<&CoreDeclaration> {
+        self.role_declaration(DeclarationRole::InterfaceOutput)
+    }
+
+    fn role_declaration(&self, role: DeclarationRole) -> Option<&CoreDeclaration> {
+        self.declarations
+            .iter()
+            .find(|declaration| declaration.role() == role)
     }
 
     /// This schema's content identity, blake3 over its stringless rkyv bytes with
@@ -93,58 +104,78 @@ impl CoreSchema {
     }
 }
 
-/// One interface line of the document — the `input` or `output` bracket. Its
-/// entries are `Name.Payload` bindings, each carried as a [`CoreVariant`]: a name
-/// and a mandatory payload reference. This reuses the variant shape exactly as
-/// `schema-language` models its interface roots (`CoreRoot::Enum`), so an entry
-/// binds a mail-type name to its payload type without a bespoke record.
-#[derive(
-    rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Default, Eq, PartialEq,
-)]
-pub struct CoreInterface {
-    entries: Vec<CoreVariant>,
+/// Whether a declaration is an ordinary data type or one of the document's two
+/// interface roots — the `input` / `output` protocol lines. This is the single
+/// marker of interface-root-ness: the native document decode and legacy ingestion
+/// both set it, and Nomos lowering reads it to gate interface-specific generation.
+/// A closed typed record, never a boolean flag.
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DeclarationRole {
+    /// An ordinary type declaration — the document's `types` block.
+    DataType,
+    /// The `input` protocol line: the mail types a component accepts.
+    InterfaceInput,
+    /// The `output` protocol line: the mail types a component emits.
+    InterfaceOutput,
 }
 
-impl CoreInterface {
-    pub fn new(entries: Vec<CoreVariant>) -> Self {
-        Self { entries }
-    }
-
-    /// The empty interface — no bound mail types.
-    pub fn empty() -> Self {
-        Self::default()
-    }
-
-    pub fn entries(&self) -> &[CoreVariant] {
-        &self.entries
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
+impl DeclarationRole {
+    /// The canonical declaration name an interface root carries — `Input` for the
+    /// input line, `Output` for the output line, `None` for an ordinary data type.
+    /// This is the position name `schema-language`'s legacy lowering assigns, so the
+    /// native document decode and legacy ingestion mint the same interface-root name.
+    pub fn interface_root_name(self) -> Option<&'static str> {
+        match self {
+            Self::DataType => None,
+            Self::InterfaceInput => Some("Input"),
+            Self::InterfaceOutput => Some("Output"),
+        }
     }
 }
 
-/// One namespace declaration: a visibility and the type it declares. The
-/// declaration's identity is its value's type identifier (the `Declaration`-name
-/// invariant of the ground truth: a declaration's name is always its value's name).
+/// One namespace declaration: a visibility, its [`DeclarationRole`], and the type it
+/// declares. The declaration's identity is its value's type identifier (the
+/// `Declaration`-name invariant of the ground truth: a declaration's name is always
+/// its value's name).
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct CoreDeclaration {
     visibility: Visibility,
+    role: DeclarationRole,
     value: CoreType,
 }
 
 impl CoreDeclaration {
+    /// An ordinary data-type declaration ([`DeclarationRole::DataType`]).
     pub fn new(visibility: Visibility, value: CoreType) -> Self {
-        Self { visibility, value }
+        Self {
+            visibility,
+            role: DeclarationRole::DataType,
+            value,
+        }
     }
 
-    /// A public declaration.
+    /// A public data-type declaration.
     pub fn public(value: CoreType) -> Self {
         Self::new(Visibility::Public, value)
     }
 
+    /// A public interface-root declaration carrying its interface role. Interface
+    /// roots are always public: they are a component's protocol surface.
+    pub fn interface(role: DeclarationRole, value: CoreType) -> Self {
+        Self {
+            visibility: Visibility::Public,
+            role,
+            value,
+        }
+    }
+
     pub fn visibility(&self) -> Visibility {
         self.visibility
+    }
+
+    /// Whether this declaration is a data type or an interface root.
+    pub fn role(&self) -> DeclarationRole {
+        self.role
     }
 
     pub fn value(&self) -> &CoreType {

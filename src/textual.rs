@@ -22,8 +22,8 @@ use structural_codec::value::StructuralValue;
 use structural_codec::{CanonicalText, StructuralEvaluator};
 
 use crate::declaration::{
-    CoreDeclaration, CoreEnum, CoreField, CoreInterface, CoreNewtype, CoreSchema, CoreStruct,
-    CoreType, CoreVariant,
+    CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreStruct, CoreType,
+    CoreVariant, DeclarationRole,
 };
 use crate::document::{
     DOCUMENT_SLOTS, DeclarationConstructor, INTERFACE, ReferenceConstructor, SchemaDocumentGrammar,
@@ -481,10 +481,15 @@ impl TextualSchema {
     // ===== the six-slot document layout =====
 
     /// Decode a whole six-slot document — `imports {} input [] output [] types {}
-    /// generics {} impls {}` — into a full [`CoreSchema`]. The `types` declarations
-    /// and the two interface lines are decoded under their slot's expected grammar
-    /// type; the imports, generics, and impls slots must be empty braces (a
-    /// non-empty one is not yet modelled and is rejected, never dropped).
+    /// generics {} impls {}` — into a full [`CoreSchema`]. The two interface lines
+    /// decode into role-tagged enumeration declarations (the [`InterfaceInput`] /
+    /// [`InterfaceOutput`] roots) and the `types` block into data declarations; all
+    /// three land in the one declaration substrate, interface roots first. The
+    /// imports, generics, and impls slots must be empty braces (a non-empty one is
+    /// not yet modelled and is rejected, never dropped).
+    ///
+    /// [`InterfaceInput`]: DeclarationRole::InterfaceInput
+    /// [`InterfaceOutput`]: DeclarationRole::InterfaceOutput
     pub fn decode_document(
         &self,
         text: &str,
@@ -496,25 +501,40 @@ impl TextualSchema {
             return Err(TextualError::DocumentArity(roots.len()));
         }
         Self::require_empty_brace(&roots[0], "imports")?;
-        let input = self.decode_interface_slot(&roots[1], names)?;
-        let output = self.decode_interface_slot(&roots[2], names)?;
-        let declarations = self.decode_types_slot(&roots[3], names)?;
+        let input =
+            self.decode_interface_slot(&roots[1], DeclarationRole::InterfaceInput, names)?;
+        let output =
+            self.decode_interface_slot(&roots[2], DeclarationRole::InterfaceOutput, names)?;
+        let types = self.decode_types_slot(&roots[3], names)?;
         Self::require_empty_brace(&roots[4], "generics")?;
         Self::require_empty_brace(&roots[5], "impls")?;
-        Ok(CoreSchema::with_interfaces(declarations, input, output))
+        let mut declarations = Vec::with_capacity(types.len() + 2);
+        declarations.push(input);
+        declarations.push(output);
+        declarations.extend(types);
+        Ok(CoreSchema::new(declarations))
     }
 
     /// Encode a [`CoreSchema`] back into six-slot document text, one slot per line.
+    /// The interface roots render into the `input` / `output` brackets and the data
+    /// declarations into the `types` block; a schema missing an interface root is
+    /// rejected loudly rather than rendered with an empty protocol line.
     pub fn encode_document(
         &self,
         schema: &CoreSchema,
         names: &mut NameTable,
     ) -> Result<String, TextualError> {
+        let input = schema
+            .input()
+            .ok_or(TextualError::MissingInterfaceRoot("input"))?;
+        let output = schema
+            .output()
+            .ok_or(TextualError::MissingInterfaceRoot("output"))?;
         let slots = [
             Self::empty_brace(),
-            self.encode_interface_slot(schema.input(), names)?,
-            self.encode_interface_slot(schema.output(), names)?,
-            self.encode_types_slot(schema.declarations(), names)?,
+            self.encode_interface_slot(input, names)?,
+            self.encode_interface_slot(output, names)?,
+            self.encode_types_slot(schema, names)?,
             Self::empty_brace(),
             Self::empty_brace(),
         ];
@@ -543,21 +563,38 @@ impl TextualSchema {
         }
     }
 
+    /// Decode one interface-line bracket into its role-tagged enumeration
+    /// declaration: the `Name.Payload` entries become the enumeration's variants, and
+    /// the declaration takes the role's canonical protocol-line name (`Input` /
+    /// `Output`) — the same name legacy ingestion carries, so the two front ends
+    /// agree on the interface surface.
     fn decode_interface_slot(
         &self,
         block: &Block,
+        role: DeclarationRole,
         names: &mut NameTable,
-    ) -> Result<CoreInterface, TextualError> {
+    ) -> Result<CoreDeclaration, TextualError> {
         let value = self.document_evaluator().decode(INTERFACE, block, names)?;
-        Self::reify_interface(&value)
+        let variants = Self::reify_interface_variants(&value)?;
+        let name = names.intern(Name::new(
+            role.interface_root_name()
+                .ok_or(TextualError::ReifyShape("interface role"))?,
+        ));
+        Ok(CoreDeclaration::interface(
+            role,
+            CoreType::Enumeration(CoreEnum::new(name, variants)),
+        ))
     }
 
     fn encode_interface_slot(
         &self,
-        interface: &CoreInterface,
+        interface: &CoreDeclaration,
         names: &mut NameTable,
     ) -> Result<String, TextualError> {
-        let mirror = self.reflect_interface(interface, names)?;
+        let CoreType::Enumeration(enumeration) = interface.value() else {
+            return Err(TextualError::ReifyShape("interface root enumeration"));
+        };
+        let mirror = self.reflect_interface(enumeration, names)?;
         let block = self
             .document_evaluator()
             .encode(INTERFACE, &mirror, names)?;
@@ -575,12 +612,15 @@ impl TextualSchema {
         self.reify_types(&value, names)
     }
 
+    /// Encode the schema's `types` block — its data declarations only. The interface
+    /// roots are rendered by [`encode_interface_slot`](Self::encode_interface_slot)
+    /// into their own brackets, never the `types` block.
     fn encode_types_slot(
         &self,
-        declarations: &[CoreDeclaration],
+        schema: &CoreSchema,
         names: &mut NameTable,
     ) -> Result<String, TextualError> {
-        let mirror = self.reflect_types(declarations, names)?;
+        let mirror = self.reflect_types(schema.data_declarations(), names)?;
         let block = self
             .document_evaluator()
             .encode(TYPES_BLOCK, &mirror, names)?;
@@ -610,13 +650,13 @@ impl TextualSchema {
         Ok(result)
     }
 
-    /// Reflect the declaration set into the `types` block mirror.
-    fn reflect_types(
+    /// Reflect a declaration set into the `types` block mirror.
+    fn reflect_types<'declaration>(
         &self,
-        declarations: &[CoreDeclaration],
+        declarations: impl Iterator<Item = &'declaration CoreDeclaration>,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
-        let mut mirrors = Vec::with_capacity(declarations.len());
+        let mut mirrors = Vec::new();
         for declaration in declarations {
             let declaration_mirror = self.reflect_declaration(declaration, names)?;
             mirrors.push(StructuralValue::Delegated(Box::new(declaration_mirror)));
@@ -713,19 +753,17 @@ impl TextualSchema {
         ))
     }
 
-    /// Reify an interface line mirror into a [`CoreInterface`].
-    fn reify_interface(value: &StructuralValue) -> Result<CoreInterface, TextualError> {
+    /// Reify an interface line mirror into its enumeration variants — the
+    /// `Name.Payload` entries that [`decode_interface_slot`](Self::decode_interface_slot)
+    /// wraps in the role-tagged interface-root declaration.
+    fn reify_interface_variants(value: &StructuralValue) -> Result<Vec<CoreVariant>, TextualError> {
         let StructuralValue::Chosen { payload, .. } = value else {
             return Err(TextualError::ReifyShape("interface"));
         };
         let StructuralValue::Delimited(entries) = payload.as_ref() else {
             return Err(TextualError::ReifyShape("interface entries"));
         };
-        let variants = entries
-            .iter()
-            .map(Self::reify_interface_variant)
-            .collect::<Result<Vec<_>, _>>()?;
-        Ok(CoreInterface::new(variants))
+        entries.iter().map(Self::reify_interface_variant).collect()
     }
 
     /// Reify one `Name.Payload` interface entry into a payload-carrying variant.
@@ -748,14 +786,14 @@ impl TextualSchema {
         ))
     }
 
-    /// Reflect a [`CoreInterface`] into its interface-line mirror.
+    /// Reflect an interface root's enumeration into its interface-line mirror.
     fn reflect_interface(
         &self,
-        interface: &CoreInterface,
+        interface: &CoreEnum,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
-        let mut entries = Vec::with_capacity(interface.entries().len());
-        for variant in interface.entries() {
+        let mut entries = Vec::with_capacity(interface.variants().len());
+        for variant in interface.variants() {
             entries.push(self.reflect_interface_variant(variant, names)?);
         }
         Ok(StructuralValue::chosen(

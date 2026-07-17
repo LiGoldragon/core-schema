@@ -81,4 +81,6 @@ pub enum TextualError {
         "the document's {0} slot is not the expected shape (a non-empty imports/generics/impls slot is not yet modelled)"
     )]
     DocumentSlot(&'static str),
+    #[error("the schema carries no {0} interface root to encode into its protocol-line slot")]
+    MissingInterfaceRoot(&'static str),
 }
