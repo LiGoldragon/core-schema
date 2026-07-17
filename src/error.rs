@@ -59,12 +59,35 @@ pub enum UniverseError {
     Names(#[from] NameTableError),
 }
 
+/// The elision law of a struct block was broken. An explicit field name — a stored
+/// name that is not the one its type derives — is legal ONLY where two or more
+/// fields in the block share a type, so that eliding every name would collide. On a
+/// uniquely typed field the name is always the derived one and must be elided; an
+/// explicit name there is invalid syntax (psyche ruling, bead `primary-56d1.48`:
+/// "the types are different so naming them must be an error"). This is a value-level
+/// invariant of [`CoreStruct`](crate::declaration::CoreStruct); the textual decoder
+/// raises it at the crate boundary.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum ElisionLawError {
+    #[error(
+        "field `{field_name}` explicitly names its uniquely-typed `{type_name}` field, but an explicit field name is legal only where two or more fields in the block share a type (elision impossible); on a uniquely typed field the name must be elided (elision law, psyche ruling primary-56d1.48)"
+    )]
+    SuperfluousName {
+        field_name: String,
+        type_name: String,
+    },
+    #[error(transparent)]
+    Names(#[from] NameTableError),
+}
+
 /// A Textual round-trip — recognizing schema text, decoding it into a CoreSchema
 /// value, or encoding a CoreSchema value back to canonical text — failed.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum TextualError {
     #[error("the source held no root object to decode")]
     EmptySource,
+    #[error(transparent)]
+    Elision(#[from] ElisionLawError),
     #[error(transparent)]
     Recognize(#[from] RecognizeError),
     #[error(transparent)]

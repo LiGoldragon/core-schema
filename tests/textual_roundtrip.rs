@@ -3,6 +3,8 @@
 //! `Field` disjoint alternatives (elided derived name versus explicit `name.Type`)
 //! work against the real Core layout.
 
+use core_schema::ElisionLawError;
+use core_schema::TextualError;
 use core_schema::TextualSchema;
 use core_schema::declaration::CoreType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
@@ -115,4 +117,35 @@ fn struct_declaration_round_trips_with_both_field_alternatives() {
         .expect("encode DatabaseMarker");
     assert_eq!(re_encoded, canonical(source), "canonical text round-trips");
     println!("re-encoded => {re_encoded}");
+}
+
+/// The elision law: an explicit field name is legal ONLY where two or more fields
+/// in the block share a type. Naming a uniquely-typed field explicitly — here
+/// `foo.CommitSequence`, the block's only `CommitSequence` — is invalid syntax, so
+/// decode must reject it with a typed [`ElisionLawError::SuperfluousName`] that
+/// names the uniquely-typed type. The two shared `StateDigest` fields keep the
+/// explicit name on `secretDigest` legal; only the uniquely-typed offender fails.
+/// (psyche ruling, bead `primary-56d1.48`.)
+#[test]
+fn decode_rejects_explicit_name_on_uniquely_typed_field() {
+    let textual = TextualSchema::fixture().expect("build textual schema");
+    let source = "DatabaseMarker.{ foo.CommitSequence StateDigest secretDigest.StateDigest }";
+    let mut names = NameTable::new();
+
+    let error = textual
+        .decode(DATABASE_MARKER, source, &mut names)
+        .expect_err(
+            "an explicit name on the uniquely-typed CommitSequence field is invalid syntax",
+        );
+
+    match error {
+        TextualError::Elision(ElisionLawError::SuperfluousName {
+            field_name,
+            type_name,
+        }) => {
+            assert_eq!(field_name, "foo");
+            assert_eq!(type_name, "CommitSequence");
+        }
+        other => panic!("expected an elision-law rejection, got {other:?}"),
+    }
 }

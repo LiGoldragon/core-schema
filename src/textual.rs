@@ -167,7 +167,9 @@ impl TextualSchema {
         for field_value in &body {
             fields.push(self.reify_field(field_value, names)?);
         }
-        Ok(CoreType::Struct(CoreStruct::new(name, fields)))
+        let structure = CoreType::Struct(CoreStruct::new(name, fields));
+        structure.enforce_elision_law(names)?;
+        Ok(structure)
     }
 
     /// A declaration value is `Chosen{0, Application(Atom(name), Delimited(body))}`.
@@ -276,9 +278,10 @@ impl TextualSchema {
         structure: &CoreStruct,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
+        let shared = structure.field_types_share_names(names)?;
         let mut field_values = Vec::with_capacity(structure.fields().len());
-        for field in structure.fields() {
-            field_values.push(self.reflect_field(field, names)?);
+        for (field, type_is_shared) in structure.fields().iter().zip(shared) {
+            field_values.push(self.reflect_field(field, type_is_shared, names)?);
         }
         Ok(StructuralValue::chosen(
             0,
@@ -292,16 +295,20 @@ impl TextualSchema {
     fn reflect_field(
         &self,
         field: &CoreField,
+        type_is_shared: bool,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
         let type_id = field
             .reference()
             .type_atom_identifier(names)
             .ok_or(TextualError::ReifyShape("field type reference"))?;
-        let chosen = if field.name_is_derivable(names)? {
-            // The name equals the type's snake_case — elide it.
-            StructuralValue::chosen(0, StructuralValue::Atom(type_id))
-        } else {
+        // The elision law: emit an explicit name ONLY where the type is shared by
+        // another field (eliding would collide) AND the stored name is not the one the
+        // type derives. A uniquely typed field always elides, so a superfluous name is
+        // never emitted (psyche ruling, bead primary-56d1.48). Under a shared type the
+        // canonical form matches the `DatabaseMarker` precedent: the field whose name
+        // equals the derived name stays elided, the disambiguating field is explicit.
+        let chosen = if type_is_shared && !field.name_is_derivable(names)? {
             StructuralValue::chosen(
                 1,
                 StructuralValue::Application(
@@ -309,6 +316,9 @@ impl TextualSchema {
                     Box::new(StructuralValue::Atom(type_id)),
                 ),
             )
+        } else {
+            // Uniquely typed, or the name equals the type's snake_case — elide it.
+            StructuralValue::chosen(0, StructuralValue::Atom(type_id))
         };
         Ok(StructuralValue::Delegated(Box::new(chosen)))
     }
@@ -704,7 +714,9 @@ impl TextualSchema {
                 }
                 // A single-field braced body lowers to a newtype canonically, matching
                 // the legacy front end (psyche ruling, bead primary-56d1.36).
-                CoreType::from_braced_body(*name, core_fields)
+                let lowered = CoreType::from_braced_body(*name, core_fields);
+                lowered.enforce_elision_law(names)?;
+                lowered
             }
             DeclarationConstructor::Enumeration => {
                 let StructuralValue::Delimited(variants) = body.as_ref() else {
@@ -732,9 +744,10 @@ impl TextualSchema {
                 )
             }
             CoreType::Struct(structure) => {
+                let shared = structure.field_types_share_names(names)?;
                 let mut fields = Vec::with_capacity(structure.fields().len());
-                for field in structure.fields() {
-                    fields.push(self.reflect_field(field, names)?);
+                for (field, type_is_shared) in structure.fields().iter().zip(shared) {
+                    fields.push(self.reflect_field(field, type_is_shared, names)?);
                 }
                 (
                     DeclarationConstructor::Struct,
