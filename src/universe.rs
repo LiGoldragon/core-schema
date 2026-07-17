@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, Name, NameTable};
+use name_table::{Identifier, Name, NameResolver, NameTable};
 use structural_codec::ids::{
     CoreUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedCoreTypeId,
 };
@@ -147,16 +147,24 @@ impl CoreUniverse {
     /// LEAN `authority-provided-universe` (realizes v2 keystone / L5 at the schema
     /// layer): a universe is built from authority assignments keyed by declared name,
     /// with names canonically interned by ascending assigned local, and each
-    /// declaration re-stamped with its canonical name identifier. Field names and
-    /// name-bearing (`Plain`) references inside declarations are carried through as
-    /// supplied — canonicalising those too is the follow-up equivalence wiring
-    /// (schema-engine / native ingestion). Revision trigger: that wiring landing, or the
-    /// authority returning explicit per-name index assignments so the NameTable order is
-    /// dictated rather than derived.
-    pub fn from_assignment(
+    /// declaration fully re-stamped ([`CoreType::restamp`]) into that canonical name
+    /// space — its own name, every field and variant name, and the target of every
+    /// `Plain` cross-reference. Interior names are resolved through the `source` name
+    /// space the assignment's declarations were parsed against and re-interned in a
+    /// fixed positional walk (ascending local, then declaration bodies in order), so
+    /// the built universe's bytes are a pure function of (assignment, declaration
+    /// content), never of parse order. Revision trigger: the authority returning
+    /// explicit per-name index assignments so the NameTable order is dictated rather
+    /// than derived, or an elided-string-field spelling ruling (bead .31) that changes
+    /// what a derived field name canonicalises to.
+    pub fn from_assignment<Source>(
         universe: CoreUniverseId,
         members: Vec<AssignedMember>,
-    ) -> Result<Self, UniverseError> {
+        source: &Source,
+    ) -> Result<Self, UniverseError>
+    where
+        Source: NameResolver + ?Sized,
+    {
         let mut ordered = members;
         ordered.sort_by_key(AssignedMember::local);
         for adjacent in ordered.windows(2) {
@@ -165,18 +173,24 @@ impl CoreUniverse {
             }
         }
         let mut builder = CoreUniverseBuilder::new();
-        for member in ordered {
+        // Phase 1: intern every member's declared name in canonical ascending-local
+        // order, so declaration names hold the lowest canonical identifiers in a
+        // parse-order-independent order.
+        let canonical: Vec<Identifier> = ordered
+            .iter()
+            .map(|member| builder.intern_name(member.name.clone()))
+            .collect();
+        // Phase 2: register each member, re-stamping declaration bodies' interior
+        // names into the same canonical table through the source name space.
+        for (member, own) in ordered.iter().zip(canonical) {
             let id = ScopedCoreTypeId::new(universe, member.local);
-            let identifier = builder.intern_name(member.name);
-            match member.kind {
-                AssignedKind::ScalarPrimitive(slot) => builder.primitive_at(id, identifier, slot),
-                AssignedKind::LeafPrimitive => builder.leaf_at(id, identifier),
-                AssignedKind::FieldMeta => builder.field_meta_at(id, identifier),
-                AssignedKind::Declaration(core_type) => {
-                    builder.declaration(
-                        id,
-                        CoreDeclaration::public(core_type.with_identifier(identifier)),
-                    );
+            match &member.kind {
+                AssignedKind::ScalarPrimitive(slot) => builder.primitive_at(id, own, *slot),
+                AssignedKind::LeafPrimitive => builder.leaf_at(id, own),
+                AssignedKind::FieldMeta => builder.field_meta_at(id, own),
+                AssignedKind::Declaration(declaration) => {
+                    let restamped = declaration.restamp(own, source, builder.names_mut())?;
+                    builder.declaration(id, restamped);
                 }
             }
         }
@@ -321,9 +335,11 @@ pub enum AssignedKind {
     LeafPrimitive,
     /// The `Field` meta-type.
     FieldMeta,
-    /// A user declaration; its own name identifier is re-stamped to the canonically
-    /// interned one when the universe is built.
-    Declaration(CoreType),
+    /// A user declaration, carried whole so its visibility and
+    /// [`DeclarationRole`](crate::declaration::DeclarationRole) are preserved through
+    /// the build; its value's own name and every interior name are re-stamped to the
+    /// canonically interned identifiers when the universe is built.
+    Declaration(CoreDeclaration),
 }
 
 /// One central-authority-assigned universe member: the local identity the authority
@@ -392,6 +408,12 @@ impl CoreUniverseBuilder {
     /// directly rather than through the `&str` convenience above.
     pub fn intern_name(&mut self, name: Name) -> Identifier {
         self.names.intern(name)
+    }
+
+    /// A mutable borrow of the shared table, for a re-stamp that resolves interior
+    /// names from a source name space and re-interns them here in canonical order.
+    pub fn names_mut(&mut self) -> &mut NameTable {
+        &mut self.names
     }
 
     /// Register a scalar leaf primitive that is a reference target at an already

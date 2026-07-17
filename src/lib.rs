@@ -60,3 +60,8 @@ pub use universe::{
     AssignedKind, AssignedMember, CORE_UNIVERSE, CoreUniverse, CoreUniverseBuilder, MemberKind,
     ScalarSlot, UniverseType,
 };
+
+/// The universe identity a built [`CoreUniverse`] scopes its type ids to, re-exported so
+/// an authority-bound ingestion can map a minted universe (`signal-sema-storage`'s
+/// `MintedUniverse`) onto the id [`CoreUniverse::from_assignment`] builds in.
+pub use structural_codec::ids::CoreUniverseId;

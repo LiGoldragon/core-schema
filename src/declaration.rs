@@ -6,7 +6,7 @@
 //! [`NameTable`]: name_table::NameTable
 
 use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
-use name_table::{Identifier, NameResolver, NameTableError};
+use name_table::{Identifier, NameInterner, NameResolver, NameTableError};
 
 use crate::error::CoreIdentityError;
 use crate::reference::CoreReference;
@@ -186,6 +186,30 @@ impl CoreDeclaration {
     pub fn identifier(&self) -> Identifier {
         self.value.identifier()
     }
+
+    /// This declaration re-stamped into a canonical name space — its visibility and
+    /// [`DeclarationRole`] preserved, its value's own name replaced with the
+    /// already-canonically-interned `own`, and every interior name re-stamped through
+    /// `source` into `canonical` ([`CoreType::restamp`]). The authority-provided
+    /// universe path ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
+    /// uses it so an ingested declaration keeps its role and visibility while its
+    /// stored identifiers become a deterministic function of the canonical order.
+    pub fn restamp<Source, Canonical>(
+        &self,
+        own: Identifier,
+        source: &Source,
+        canonical: &mut Canonical,
+    ) -> Result<Self, NameTableError>
+    where
+        Source: NameResolver + ?Sized,
+        Canonical: NameInterner + ?Sized,
+    {
+        Ok(Self {
+            visibility: self.visibility,
+            role: self.role,
+            value: self.value.restamp(own, source, canonical)?,
+        })
+    }
 }
 
 /// Whether a declaration is exported. A closed typed record, never a boolean flag.
@@ -222,24 +246,49 @@ impl CoreType {
         }
     }
 
-    /// This type with its own name identifier replaced, the rest of its shape kept.
+    /// This type re-stamped into a canonical name space: its own name identifier
+    /// replaced with the already-canonically-interned `own`, and EVERY interior name
+    /// — field names, variant names, and the target of each `Plain` cross-reference —
+    /// resolved through the `source` name space and re-interned into `canonical`.
     /// The authority-provided universe path
     /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
-    /// uses it to re-stamp a declaration's name with the canonically-interned
-    /// identifier, so the declaration's own identity is a deterministic function of the
-    /// authority's assignment rather than of parse-order interning.
-    pub fn with_identifier(&self, identifier: Identifier) -> Self {
-        match self {
-            Self::Newtype(newtype) => {
-                Self::Newtype(CoreNewtype::new(identifier, newtype.reference().clone()))
-            }
+    /// uses it so the built declaration's every stored identifier is a deterministic
+    /// function of the canonical interning order (the authority's assignment plus a
+    /// fixed positional walk), never of the order the source parsed. Without the
+    /// interior re-stamping, schemas whose declarations reference each other or carry
+    /// explicit field names still hashed differently across parse orders.
+    pub fn restamp<Source, Canonical>(
+        &self,
+        own: Identifier,
+        source: &Source,
+        canonical: &mut Canonical,
+    ) -> Result<Self, NameTableError>
+    where
+        Source: NameResolver + ?Sized,
+        Canonical: NameInterner + ?Sized,
+    {
+        Ok(match self {
+            Self::Newtype(newtype) => Self::Newtype(CoreNewtype::new(
+                own,
+                newtype.reference().restamp(source, canonical)?,
+            )),
             Self::Struct(structure) => {
-                Self::Struct(CoreStruct::new(identifier, structure.fields().to_vec()))
+                let fields = structure
+                    .fields()
+                    .iter()
+                    .map(|field| field.restamp(source, canonical))
+                    .collect::<Result<_, _>>()?;
+                Self::Struct(CoreStruct::new(own, fields))
             }
             Self::Enumeration(enumeration) => {
-                Self::Enumeration(CoreEnum::new(identifier, enumeration.variants().to_vec()))
+                let variants = enumeration
+                    .variants()
+                    .iter()
+                    .map(|variant| variant.restamp(source, canonical))
+                    .collect::<Result<_, _>>()?;
+                Self::Enumeration(CoreEnum::new(own, variants))
             }
-        }
+        })
     }
 }
 
@@ -313,6 +362,27 @@ impl CoreField {
         &self.reference
     }
 
+    /// This field re-stamped into a canonical name space: its own name resolved
+    /// through `source` and re-interned into `canonical`, and its reference
+    /// re-stamped the same way. Part of the authority-provided canonicalisation
+    /// ([`CoreType::restamp`]).
+    pub fn restamp<Source, Canonical>(
+        &self,
+        source: &Source,
+        canonical: &mut Canonical,
+    ) -> Result<Self, NameTableError>
+    where
+        Source: NameResolver + ?Sized,
+        Canonical: NameInterner + ?Sized,
+    {
+        let name = source.resolve(self.identifier)?.clone();
+        let identifier = canonical.intern(name);
+        Ok(Self::new(
+            identifier,
+            self.reference.restamp(source, canonical)?,
+        ))
+    }
+
     /// Whether this field's stored name is exactly the one its reference derives —
     /// the single predicate that decides text-name elision. When true, the name may
     /// be elided in text (and re-derived on decode) or re-derived on Nomos lowering;
@@ -373,5 +443,27 @@ impl CoreVariant {
 
     pub fn payload(&self) -> Option<&CoreReference> {
         self.payload.as_ref()
+    }
+
+    /// This variant re-stamped into a canonical name space: its own name resolved
+    /// through `source` and re-interned into `canonical`, and its optional payload
+    /// reference re-stamped the same way. Part of the authority-provided
+    /// canonicalisation ([`CoreType::restamp`]).
+    pub fn restamp<Source, Canonical>(
+        &self,
+        source: &Source,
+        canonical: &mut Canonical,
+    ) -> Result<Self, NameTableError>
+    where
+        Source: NameResolver + ?Sized,
+        Canonical: NameInterner + ?Sized,
+    {
+        let name = source.resolve(self.identifier)?.clone();
+        let identifier = canonical.intern(name);
+        let payload = match &self.payload {
+            Some(reference) => Some(reference.restamp(source, canonical)?),
+            None => None,
+        };
+        Ok(Self::new(identifier, payload))
     }
 }
