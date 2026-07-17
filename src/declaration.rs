@@ -237,6 +237,23 @@ impl CoreType {
         }
     }
 
+    /// Lower a braced declaration body — the `Name.{ Field* }` form — into its
+    /// canonical Core type. A single-field body lowers to a [`Newtype`](Self::Newtype)
+    /// over that field's reference (the field name is dropped, exactly as a `Name.Ref`
+    /// newtype carries none); any other arity is a [`Struct`](Self::Struct). This is
+    /// the single home for the single-field-brace rule (psyche ruling 2026-07-17, bead
+    /// `primary-56d1.36`), so the native document decode converges byte-for-byte onto
+    /// the legacy lowering (`schema-language`'s `MacroExpansionStructBody::lower_type`,
+    /// which collapses a one-field struct body to a newtype the same way).
+    pub fn from_braced_body(identifier: Identifier, mut fields: Vec<CoreField>) -> Self {
+        if fields.len() == 1 {
+            let field = fields.remove(0);
+            Self::Newtype(CoreNewtype::new(identifier, field.reference().clone()))
+        } else {
+            Self::Struct(CoreStruct::new(identifier, fields))
+        }
+    }
+
     /// How many Core constructors this type has: a product (newtype, struct) has
     /// one; a sum (enumeration) has one per variant.
     pub fn constructor_count(&self) -> usize {

@@ -14,9 +14,9 @@ use structural_codec::CanonicalText;
 
 /// The spirit-min schema in core-schema's native dialect: its shape verbatim — the
 /// six root slots, the type declarations, both enumerations, the `Vector`
-/// projections, and the two interface lines — with the string scalar spelled `Text`
-/// (the frozen `CoreReference` leaf spelling), which is where spirit-min writes
-/// `String`.
+/// projections, and the two interface lines — with the string scalar spelled
+/// `String`, its canonical spelling under the 2026-07-17 ruling ("Strings are
+/// Strings"), exactly as spirit-min writes it.
 const SPIRIT_MIN: &str = "\
 {}
 [Record.RecordPayload Observe.ObservePayload]
@@ -26,9 +26,9 @@ const SPIRIT_MIN: &str = "\
   ObservePayload.Query
   RecordAcceptedPayload.RecordIdentifier
   RecordsObservedPayload.RecordSet
-  Topic.Text
+  Topic.String
   Topics.Vector.Topic
-  Description.Text
+  Description.String
   RecordIdentifier.Integer
   Entry.{ Topics Kind Description Magnitude }
   Query.{ Topic Kind }
@@ -266,4 +266,70 @@ fn spirit_min_document_round_trips_to_stable_text() {
     }
 
     println!("encoded document:\n{encoded}");
+}
+
+/// The two 2026-07-17 rulings, native-side: (1) the string scalar is spelled `String`
+/// — a `Name.String` newtype recognizes the string leaf, and an elided `String` field
+/// derives the name `string`; (2) a single-field braced declaration `Name.{ Field }`
+/// lowers to a NEWTYPE over that field's reference, dropping the field name, matching
+/// the legacy front end.
+const RULING_MIN: &str = "\
+{}
+[Ingest.Entry]
+[Stored.Entry]
+{
+  Note.String
+  Summary.{ Note }
+  Entry.{ String Note }
+}
+{}
+{}";
+
+#[test]
+fn string_scalar_and_single_field_brace_follow_the_rulings() {
+    let textual = TextualSchema::schema_document().expect("build the document grammar");
+    let mut names = NameTable::new();
+    let schema = textual
+        .decode_document(RULING_MIN, &mut names)
+        .expect("decode the ruling document");
+
+    // Ruling 1: `Note.String` is a newtype over the string SCALAR leaf, not a Plain
+    // reference to a user type named `String`.
+    let CoreType::Newtype(note) = declaration(schema.declarations(), &names, "Note") else {
+        panic!("Note is a newtype");
+    };
+    assert_eq!(
+        note.reference(),
+        &CoreReference::String,
+        "Note wraps the string scalar leaf",
+    );
+
+    // Ruling 2: `Summary.{ Note }` — a single-field braced body — lowers to a newtype
+    // over the field's reference, the name `Note` dropped.
+    let CoreType::Newtype(summary) = declaration(schema.declarations(), &names, "Summary") else {
+        panic!("Summary is a newtype (single-field brace collapses)");
+    };
+    assert!(
+        matches!(summary.reference(), CoreReference::Plain(id) if text(&names, *id) == "Note"),
+        "Summary wraps Plain(Note), got {:?}",
+        summary.reference(),
+    );
+
+    // Ruling 1, field position: an elided `String` field recognizes the scalar and
+    // derives the name `string`.
+    let CoreType::Struct(entry) = declaration(schema.declarations(), &names, "Entry") else {
+        panic!("Entry is a struct (two fields)");
+    };
+    let entry_fields: Vec<(&str, &CoreReference)> = entry
+        .fields()
+        .iter()
+        .map(|field| (text(&names, field.identifier()), field.reference()))
+        .collect();
+    assert_eq!(
+        entry_fields[0].0, "string",
+        "an elided String field derives `string`"
+    );
+    assert_eq!(entry_fields[0].1, &CoreReference::String);
+    assert_eq!(entry_fields[1].0, "note");
+    assert!(matches!(entry_fields[1].1, CoreReference::Plain(id) if text(&names, *id) == "Note"));
 }

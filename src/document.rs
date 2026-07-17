@@ -58,7 +58,7 @@ pub const DOCUMENT_SLOTS: usize = 6;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReferenceConstructor {
     Integer,
-    Text,
+    String,
     Boolean,
     Bytes,
     Vector,
@@ -71,7 +71,7 @@ impl ReferenceConstructor {
     /// Every reference constructor, in authored-table order.
     pub const ALL: [Self; 8] = [
         Self::Integer,
-        Self::Text,
+        Self::String,
         Self::Boolean,
         Self::Bytes,
         Self::Vector,
@@ -106,7 +106,7 @@ impl ReferenceConstructor {
     pub fn scalar(self) -> Option<CoreReference> {
         match self {
             Self::Integer => Some(CoreReference::Integer),
-            Self::Text => Some(CoreReference::String),
+            Self::String => Some(CoreReference::String),
             Self::Boolean => Some(CoreReference::Boolean),
             Self::Bytes => Some(CoreReference::Bytes),
             Self::Vector | Self::Optional | Self::ScopeOf | Self::Plain => None,
@@ -119,17 +119,18 @@ impl ReferenceConstructor {
             Self::Vector => Some(SingleTypeReferenceProjection::Vector),
             Self::Optional => Some(SingleTypeReferenceProjection::Optional),
             Self::ScopeOf => Some(SingleTypeReferenceProjection::ScopeOf),
-            Self::Integer | Self::Text | Self::Boolean | Self::Bytes | Self::Plain => None,
+            Self::Integer | Self::String | Self::Boolean | Self::Bytes | Self::Plain => None,
         }
     }
 
     /// The grammar keyword this constructor matches (a scalar or projection keyword),
-    /// or `None` for the `Plain` fallback which matches any name atom. `Text` is the
-    /// string leaf's keyword — the frozen derived-name spelling of `CoreReference`.
+    /// or `None` for the `Plain` fallback which matches any name atom. `String` is the
+    /// string leaf's keyword — its canonical spelling under the 2026-07-17 ruling
+    /// ("Strings are Strings"); `Text` is no longer a recognized spelling (no aliases).
     pub fn keyword(self) -> Option<&'static str> {
         match self {
             Self::Integer => Some("Integer"),
-            Self::Text => Some("Text"),
+            Self::String => Some("String"),
             Self::Boolean => Some("Boolean"),
             Self::Bytes => Some("Bytes"),
             Self::Vector => Some("Vector"),

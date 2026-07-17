@@ -421,7 +421,7 @@ impl TextualSchema {
                 names,
             )),
             CoreReference::String => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Text,
+                ReferenceConstructor::String,
                 names,
             )),
             CoreReference::Boolean => Ok(Self::reference_scalar_mirror(
@@ -702,7 +702,9 @@ impl TextualSchema {
                 for field in fields {
                     core_fields.push(self.reify_field(field, names)?);
                 }
-                CoreType::Struct(CoreStruct::new(*name, core_fields))
+                // A single-field braced body lowers to a newtype canonically, matching
+                // the legacy front end (psyche ruling, bead primary-56d1.36).
+                CoreType::from_braced_body(*name, core_fields)
             }
             DeclarationConstructor::Enumeration => {
                 let StructuralValue::Delimited(variants) = body.as_ref() else {

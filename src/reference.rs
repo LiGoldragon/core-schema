@@ -75,12 +75,18 @@ impl CoreReference {
     ///
     /// Single home for the derived-name spelling. Because it delegates to
     /// [`type_name`](Self::type_name), the derived name always agrees with the type
-    /// spelling the reference shows in text. The scalar cases previously carried
-    /// hardcoded lowercase spellings; every one already matched the type-name route
-    /// except the string leaf, whose text spelling is `Text` (not `String`), so an
-    /// elided string field now derives `text` rather than `string`. LEAN: this
-    /// reconciles the codec/lowering divergence toward the type-name spelling and is
-    /// revisable by changing the string leaf's [`type_name`](Self::type_name).
+    /// spelling the reference shows in text. The scalar cases carry no hardcoded
+    /// spellings; every one is the `snake_case` of its type-name route. The string
+    /// leaf's type spelling is `String` (psyche ruling 2026-07-17, "Strings are
+    /// Strings": the string scalar's canonical spelling is `String` and the Textual
+    /// vocabulary belongs to the form layer, never the scalar's name), so an elided
+    /// string field derives `string`.
+    ///
+    /// LEAN (superseded-by-ruling): a previous lean read the string leaf's spelling
+    /// as `Text` and derived `text`, reconciling the codec/lowering divergence toward
+    /// the then-current type-name spelling. The 2026-07-17 ruling (bead
+    /// `primary-56d1.31`) supersedes it: `String` is canonical, so the derived name
+    /// is `string`.
     pub fn derived_field_name<Resolver: NameResolver + ?Sized>(
         &self,
         names: &Resolver,
@@ -143,7 +149,7 @@ impl CoreReference {
     pub fn from_type_name(name: &Name, identifier: Identifier) -> Self {
         match name.as_str() {
             "Integer" => Self::Integer,
-            "Text" => Self::String,
+            "String" => Self::String,
             "Boolean" => Self::Boolean,
             "Bytes" => Self::Bytes,
             _ => Self::Plain(identifier),
@@ -160,7 +166,7 @@ impl CoreReference {
     ) -> Option<Identifier> {
         match self {
             Self::Plain(identifier) => Some(*identifier),
-            Self::String => Some(interner.intern(Name::new("Text"))),
+            Self::String => Some(interner.intern(Name::new("String"))),
             Self::Integer => Some(interner.intern(Name::new("Integer"))),
             Self::Boolean => Some(interner.intern(Name::new("Boolean"))),
             Self::Bytes => Some(interner.intern(Name::new("Bytes"))),
@@ -178,7 +184,7 @@ impl CoreReference {
         names: &Resolver,
     ) -> Result<Name, NameTableError> {
         Ok(match self {
-            Self::String => Name::new("Text"),
+            Self::String => Name::new("String"),
             Self::Integer => Name::new("Integer"),
             Self::Boolean => Name::new("Boolean"),
             Self::Bytes => Name::new("Bytes"),
