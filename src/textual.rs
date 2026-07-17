@@ -14,25 +14,36 @@
 //! referenced type (name-table's derived-name rule); on decode the elided name is
 //! re-derived, never stored.
 
-use name_table::NameTable;
-use raw_discovery::Recognizer;
+use name_table::{Name, NameTable};
+use raw_discovery::{Block, Delimiter, Recognizer};
 use structural_codec::ids::ScopedCoreTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::value::StructuralValue;
 use structural_codec::{CanonicalText, StructuralEvaluator};
 
-use crate::declaration::{CoreField, CoreNewtype, CoreStruct, CoreType};
+use crate::declaration::{
+    CoreDeclaration, CoreEnum, CoreField, CoreInterface, CoreNewtype, CoreSchema, CoreStruct,
+    CoreType, CoreVariant,
+};
+use crate::document::{
+    DOCUMENT_SLOTS, DeclarationConstructor, INTERFACE, ReferenceConstructor, SchemaDocumentGrammar,
+    TYPES_BLOCK,
+};
 use crate::error::TextualError;
 use crate::fixture::FixtureFamily;
 use crate::reference::CoreReference;
-use crate::universe::CoreUniverse;
+use crate::universe::{CORE_UNIVERSE, CoreUniverse, CoreUniverseBuilder};
 
 /// A Textual view over one Core universe: the authored structural table plus the
-/// universe it targets. One codec, both directions.
+/// universe it targets, and — for the document grammar — the keyword lexicon its
+/// `Literal` forms resolve through. One codec, both directions.
 #[derive(Clone, Debug)]
 pub struct TextualSchema {
     universe: CoreUniverse,
     table: AddressedStructuralTable,
+    /// The lexicon for `Literal` keyword decode. `None` for tables that carry no
+    /// literals (the single-declaration fixture); `Some` for the document grammar.
+    lexicon: Option<NameTable>,
 }
 
 impl TextualSchema {
@@ -43,12 +54,30 @@ impl TextualSchema {
         Ok(Self {
             universe: family.universe().clone(),
             table,
+            lexicon: None,
+        })
+    }
+
+    /// Build the Textual view over the six-slot document grammar, so a whole
+    /// spirit-min-shaped document decodes to a full [`CoreSchema`] and encodes back.
+    /// The grammar targets no single Core layout, so its universe carries no members;
+    /// document decode dispatches on grammar constructor indices, not universe types.
+    pub fn schema_document() -> Result<Self, TextualError> {
+        let grammar = SchemaDocumentGrammar::build()?;
+        Ok(Self {
+            universe: CoreUniverseBuilder::new().build(CORE_UNIVERSE),
+            table: grammar.table().clone(),
+            lexicon: Some(grammar.lexicon().clone()),
         })
     }
 
     /// Build a Textual view from an explicit universe and authored table.
     pub fn new(universe: CoreUniverse, table: AddressedStructuralTable) -> Self {
-        Self { universe, table }
+        Self {
+            universe,
+            table,
+            lexicon: None,
+        }
     }
 
     pub fn universe(&self) -> &CoreUniverse {
@@ -106,7 +135,7 @@ impl TextualSchema {
         match self.universe.core_type(expected) {
             Some(CoreType::Newtype(_)) => self.reify_newtype(value, names),
             Some(CoreType::Struct(_)) => self.reify_struct(value, names),
-            Some(CoreType::Enumeration(_)) => Err(TextualError::ReifyShape("enumeration")),
+            Some(CoreType::Enumeration(_)) => Self::reify_enumeration(value),
             None => Err(TextualError::ReifyShape("non-declaration expected type")),
         }
     }
@@ -219,7 +248,7 @@ impl TextualSchema {
         match value {
             CoreType::Newtype(newtype) => self.reflect_newtype(newtype, names),
             CoreType::Struct(structure) => self.reflect_struct(structure, names),
-            CoreType::Enumeration(_) => Err(TextualError::ReifyShape("enumeration encode")),
+            CoreType::Enumeration(enumeration) => Self::reflect_enumeration(enumeration),
         }
     }
 
@@ -282,5 +311,476 @@ impl TextualSchema {
             )
         };
         Ok(StructuralValue::Delegated(Box::new(chosen)))
+    }
+
+    // ===== enumeration declarations (single-declaration path) =====
+
+    /// Reify an enumeration declaration `Name.[ Variant* ]` — a `Chosen` wrapping the
+    /// name-applied bracket of unit variants — into a real [`CoreEnum`].
+    fn reify_enumeration(value: &StructuralValue) -> Result<CoreType, TextualError> {
+        let (name, body) = Self::declaration_head(value, "enumeration")?;
+        Ok(CoreType::Enumeration(CoreEnum::new(
+            name,
+            Self::variants_from_atoms(body)?,
+        )))
+    }
+
+    /// Reflect a [`CoreEnum`] back into the enumeration-declaration mirror.
+    fn reflect_enumeration(enumeration: &CoreEnum) -> Result<StructuralValue, TextualError> {
+        Ok(StructuralValue::chosen(
+            0,
+            StructuralValue::Application(
+                Box::new(StructuralValue::Atom(enumeration.identifier())),
+                Box::new(StructuralValue::Delimited(Self::variant_atoms(
+                    enumeration,
+                )?)),
+            ),
+        ))
+    }
+
+    /// The unit variants a bracket of name atoms carries. A payload-bearing atom
+    /// cannot appear here — a declaration bracket lists variant names only.
+    fn variants_from_atoms(atoms: &[StructuralValue]) -> Result<Vec<CoreVariant>, TextualError> {
+        atoms
+            .iter()
+            .map(|atom| match atom {
+                StructuralValue::Atom(identifier) => Ok(CoreVariant::new(*identifier, None)),
+                _ => Err(TextualError::ReifyShape("enumeration variant")),
+            })
+            .collect()
+    }
+
+    /// The name atoms an enumeration's unit variants encode to. A payload variant has
+    /// no square-bracket declaration form and is rejected loudly.
+    fn variant_atoms(enumeration: &CoreEnum) -> Result<Vec<StructuralValue>, TextualError> {
+        enumeration
+            .variants()
+            .iter()
+            .map(|variant| {
+                if variant.payload().is_some() {
+                    Err(TextualError::ReifyShape(
+                        "enumeration declaration payload variant",
+                    ))
+                } else {
+                    Ok(StructuralValue::Atom(variant.identifier()))
+                }
+            })
+            .collect()
+    }
+
+    // ===== type references (by kind and projection) =====
+
+    /// Reify a `TypeReference` mirror into a real [`CoreReference`], dispatching on
+    /// the winning grammar constructor index — never a head string. A `Delegate`
+    /// wrapper is transparent; a scalar constructor yields its leaf; a single-type
+    /// projection yields the application over its recursively reified argument; the
+    /// `Plain` fallback carries the name identifier.
+    fn reify_reference(value: &StructuralValue) -> Result<CoreReference, TextualError> {
+        match value {
+            StructuralValue::Delegated(inner) => Self::reify_reference(inner),
+            StructuralValue::Chosen {
+                constructor,
+                payload,
+            } => {
+                let constructor = ReferenceConstructor::from_index(*constructor)
+                    .ok_or(TextualError::ReifyShape("type reference constructor"))?;
+                if let Some(scalar) = constructor.scalar() {
+                    Ok(scalar)
+                } else if let Some(projection) = constructor.single_projection() {
+                    let StructuralValue::Application(_keyword, argument) = payload.as_ref() else {
+                        return Err(TextualError::ReifyShape(
+                            "single-type projection application",
+                        ));
+                    };
+                    Ok(CoreReference::SingleTypeApplication {
+                        projection,
+                        argument: Box::new(Self::reify_reference(argument)?),
+                    })
+                } else {
+                    let StructuralValue::Atom(identifier) = payload.as_ref() else {
+                        return Err(TextualError::ReifyShape("plain reference name"));
+                    };
+                    Ok(CoreReference::Plain(*identifier))
+                }
+            }
+            _ => Err(TextualError::ReifyShape("type reference")),
+        }
+    }
+
+    /// Reflect a [`CoreReference`] into its `TypeReference` mirror. Scalar and
+    /// projection keywords are interned into `names` so the evaluator's `Literal`
+    /// encode resolves them; a `Plain` reference carries its stored identifier.
+    fn reflect_reference(
+        &self,
+        reference: &CoreReference,
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        match reference {
+            CoreReference::Integer => Ok(Self::reference_scalar_mirror(
+                ReferenceConstructor::Integer,
+                names,
+            )),
+            CoreReference::String => Ok(Self::reference_scalar_mirror(
+                ReferenceConstructor::Text,
+                names,
+            )),
+            CoreReference::Boolean => Ok(Self::reference_scalar_mirror(
+                ReferenceConstructor::Boolean,
+                names,
+            )),
+            CoreReference::Bytes => Ok(Self::reference_scalar_mirror(
+                ReferenceConstructor::Bytes,
+                names,
+            )),
+            CoreReference::Plain(identifier) => Ok(StructuralValue::chosen(
+                ReferenceConstructor::Plain.index(),
+                StructuralValue::Atom(*identifier),
+            )),
+            CoreReference::SingleTypeApplication {
+                projection,
+                argument,
+            } => {
+                let constructor = ReferenceConstructor::from_single_projection(*projection);
+                let keyword = constructor
+                    .keyword()
+                    .ok_or(TextualError::ReifyShape("projection keyword"))?;
+                let keyword_id = names.intern(Name::new(keyword));
+                let inner = self.reflect_reference(argument, names)?;
+                Ok(StructuralValue::chosen(
+                    constructor.index(),
+                    StructuralValue::Application(
+                        Box::new(StructuralValue::Atom(keyword_id)),
+                        Box::new(StructuralValue::Delegated(Box::new(inner))),
+                    ),
+                ))
+            }
+            CoreReference::MultiTypeApplication { .. } => {
+                Err(TextualError::ReifyShape("multi-type application encode"))
+            }
+            CoreReference::ValueApplication { .. } => {
+                Err(TextualError::ReifyShape("value application encode"))
+            }
+        }
+    }
+
+    /// A scalar reference's mirror: the constructor tag over the keyword atom the
+    /// evaluator's `Literal` encode resolves.
+    fn reference_scalar_mirror(
+        constructor: ReferenceConstructor,
+        names: &mut NameTable,
+    ) -> StructuralValue {
+        let keyword = constructor
+            .keyword()
+            .expect("a scalar constructor has a keyword");
+        StructuralValue::chosen(
+            constructor.index(),
+            StructuralValue::Atom(names.intern(Name::new(keyword))),
+        )
+    }
+
+    // ===== the six-slot document layout =====
+
+    /// Decode a whole six-slot document — `imports {} input [] output [] types {}
+    /// generics {} impls {}` — into a full [`CoreSchema`]. The `types` declarations
+    /// and the two interface lines are decoded under their slot's expected grammar
+    /// type; the imports, generics, and impls slots must be empty braces (a
+    /// non-empty one is not yet modelled and is rejected, never dropped).
+    pub fn decode_document(
+        &self,
+        text: &str,
+        names: &mut NameTable,
+    ) -> Result<CoreSchema, TextualError> {
+        let document = Recognizer::standard().recognize(text)?;
+        let roots = document.root_objects();
+        if roots.len() != DOCUMENT_SLOTS {
+            return Err(TextualError::DocumentArity(roots.len()));
+        }
+        Self::require_empty_brace(&roots[0], "imports")?;
+        let input = self.decode_interface_slot(&roots[1], names)?;
+        let output = self.decode_interface_slot(&roots[2], names)?;
+        let declarations = self.decode_types_slot(&roots[3], names)?;
+        Self::require_empty_brace(&roots[4], "generics")?;
+        Self::require_empty_brace(&roots[5], "impls")?;
+        Ok(CoreSchema::with_interfaces(declarations, input, output))
+    }
+
+    /// Encode a [`CoreSchema`] back into six-slot document text, one slot per line.
+    pub fn encode_document(
+        &self,
+        schema: &CoreSchema,
+        names: &mut NameTable,
+    ) -> Result<String, TextualError> {
+        let slots = [
+            Self::empty_brace(),
+            self.encode_interface_slot(schema.input(), names)?,
+            self.encode_interface_slot(schema.output(), names)?,
+            self.encode_types_slot(schema.declarations(), names)?,
+            Self::empty_brace(),
+            Self::empty_brace(),
+        ];
+        Ok(slots.join("\n"))
+    }
+
+    /// The evaluator for the document grammar: with the keyword lexicon when the table
+    /// carries `Literal` forms, plain otherwise.
+    fn document_evaluator(&self) -> StructuralEvaluator<'_> {
+        match &self.lexicon {
+            Some(lexicon) => StructuralEvaluator::with_lexicon(&self.table, lexicon),
+            None => StructuralEvaluator::new(&self.table),
+        }
+    }
+
+    /// The canonical empty brace an unmodelled document slot renders to.
+    fn empty_brace() -> String {
+        Delimiter::Brace.wrap(std::iter::empty::<String>())
+    }
+
+    /// Prove a document slot is an empty brace; otherwise a loud, typed slot error.
+    fn require_empty_brace(block: &Block, slot: &'static str) -> Result<(), TextualError> {
+        match block.as_delimited(Delimiter::Brace) {
+            Some([]) => Ok(()),
+            _ => Err(TextualError::DocumentSlot(slot)),
+        }
+    }
+
+    fn decode_interface_slot(
+        &self,
+        block: &Block,
+        names: &mut NameTable,
+    ) -> Result<CoreInterface, TextualError> {
+        let value = self.document_evaluator().decode(INTERFACE, block, names)?;
+        Self::reify_interface(&value)
+    }
+
+    fn encode_interface_slot(
+        &self,
+        interface: &CoreInterface,
+        names: &mut NameTable,
+    ) -> Result<String, TextualError> {
+        let mirror = self.reflect_interface(interface, names)?;
+        let block = self
+            .document_evaluator()
+            .encode(INTERFACE, &mirror, names)?;
+        Ok(block.canonical_text())
+    }
+
+    fn decode_types_slot(
+        &self,
+        block: &Block,
+        names: &mut NameTable,
+    ) -> Result<Vec<CoreDeclaration>, TextualError> {
+        let value = self
+            .document_evaluator()
+            .decode(TYPES_BLOCK, block, names)?;
+        self.reify_types(&value, names)
+    }
+
+    fn encode_types_slot(
+        &self,
+        declarations: &[CoreDeclaration],
+        names: &mut NameTable,
+    ) -> Result<String, TextualError> {
+        let mirror = self.reflect_types(declarations, names)?;
+        let block = self
+            .document_evaluator()
+            .encode(TYPES_BLOCK, &mirror, names)?;
+        Ok(block.canonical_text())
+    }
+
+    /// Reify the `types` block mirror into the declaration set. Each child is a
+    /// `Delegate` over a `Declaration` mirror.
+    fn reify_types(
+        &self,
+        value: &StructuralValue,
+        names: &mut NameTable,
+    ) -> Result<Vec<CoreDeclaration>, TextualError> {
+        let StructuralValue::Chosen { payload, .. } = value else {
+            return Err(TextualError::ReifyShape("types block"));
+        };
+        let StructuralValue::Delimited(declarations) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("types block declarations"));
+        };
+        let mut result = Vec::with_capacity(declarations.len());
+        for declaration in declarations {
+            let StructuralValue::Delegated(inner) = declaration else {
+                return Err(TextualError::ReifyShape("declaration delegate"));
+            };
+            result.push(self.reify_declaration(inner, names)?);
+        }
+        Ok(result)
+    }
+
+    /// Reflect the declaration set into the `types` block mirror.
+    fn reflect_types(
+        &self,
+        declarations: &[CoreDeclaration],
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        let mut mirrors = Vec::with_capacity(declarations.len());
+        for declaration in declarations {
+            let declaration_mirror = self.reflect_declaration(declaration, names)?;
+            mirrors.push(StructuralValue::Delegated(Box::new(declaration_mirror)));
+        }
+        Ok(StructuralValue::chosen(
+            0,
+            StructuralValue::Delimited(mirrors),
+        ))
+    }
+
+    /// Reify one `Declaration` mirror, dispatching on the winning grammar constructor
+    /// index to a newtype, struct, or enumeration. Every document declaration is
+    /// public — the surface carries no visibility marker in this layout.
+    fn reify_declaration(
+        &self,
+        value: &StructuralValue,
+        names: &mut NameTable,
+    ) -> Result<CoreDeclaration, TextualError> {
+        let StructuralValue::Chosen {
+            constructor,
+            payload,
+        } = value
+        else {
+            return Err(TextualError::ReifyShape("declaration"));
+        };
+        let constructor = DeclarationConstructor::from_index(*constructor)
+            .ok_or(TextualError::ReifyShape("declaration constructor"))?;
+        let StructuralValue::Application(head, body) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("declaration application"));
+        };
+        let StructuralValue::Atom(name) = head.as_ref() else {
+            return Err(TextualError::ReifyShape("declaration name"));
+        };
+        let core_type = match constructor {
+            DeclarationConstructor::Newtype => {
+                CoreType::Newtype(CoreNewtype::new(*name, Self::reify_reference(body)?))
+            }
+            DeclarationConstructor::Struct => {
+                let StructuralValue::Delimited(fields) = body.as_ref() else {
+                    return Err(TextualError::ReifyShape("struct fields"));
+                };
+                let mut core_fields = Vec::with_capacity(fields.len());
+                for field in fields {
+                    core_fields.push(self.reify_field(field, names)?);
+                }
+                CoreType::Struct(CoreStruct::new(*name, core_fields))
+            }
+            DeclarationConstructor::Enumeration => {
+                let StructuralValue::Delimited(variants) = body.as_ref() else {
+                    return Err(TextualError::ReifyShape("enumeration variants"));
+                };
+                CoreType::Enumeration(CoreEnum::new(*name, Self::variants_from_atoms(variants)?))
+            }
+        };
+        Ok(CoreDeclaration::public(core_type))
+    }
+
+    /// Reflect a [`CoreDeclaration`] into its `Declaration` mirror.
+    fn reflect_declaration(
+        &self,
+        declaration: &CoreDeclaration,
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        let core_type = declaration.value();
+        let (constructor, body) = match core_type {
+            CoreType::Newtype(newtype) => {
+                let reference_mirror = self.reflect_reference(newtype.reference(), names)?;
+                (
+                    DeclarationConstructor::Newtype,
+                    StructuralValue::Delegated(Box::new(reference_mirror)),
+                )
+            }
+            CoreType::Struct(structure) => {
+                let mut fields = Vec::with_capacity(structure.fields().len());
+                for field in structure.fields() {
+                    fields.push(self.reflect_field(field, names)?);
+                }
+                (
+                    DeclarationConstructor::Struct,
+                    StructuralValue::Delimited(fields),
+                )
+            }
+            CoreType::Enumeration(enumeration) => (
+                DeclarationConstructor::Enumeration,
+                StructuralValue::Delimited(Self::variant_atoms(enumeration)?),
+            ),
+        };
+        Ok(StructuralValue::chosen(
+            constructor.index(),
+            StructuralValue::Application(
+                Box::new(StructuralValue::Atom(core_type.identifier())),
+                Box::new(body),
+            ),
+        ))
+    }
+
+    /// Reify an interface line mirror into a [`CoreInterface`].
+    fn reify_interface(value: &StructuralValue) -> Result<CoreInterface, TextualError> {
+        let StructuralValue::Chosen { payload, .. } = value else {
+            return Err(TextualError::ReifyShape("interface"));
+        };
+        let StructuralValue::Delimited(entries) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("interface entries"));
+        };
+        let variants = entries
+            .iter()
+            .map(Self::reify_interface_variant)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(CoreInterface::new(variants))
+    }
+
+    /// Reify one `Name.Payload` interface entry into a payload-carrying variant.
+    fn reify_interface_variant(entry: &StructuralValue) -> Result<CoreVariant, TextualError> {
+        let StructuralValue::Delegated(inner) = entry else {
+            return Err(TextualError::ReifyShape("interface entry delegate"));
+        };
+        let StructuralValue::Chosen { payload, .. } = inner.as_ref() else {
+            return Err(TextualError::ReifyShape("interface entry constructor"));
+        };
+        let StructuralValue::Application(head, reference) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("interface entry application"));
+        };
+        let StructuralValue::Atom(name) = head.as_ref() else {
+            return Err(TextualError::ReifyShape("interface entry name"));
+        };
+        Ok(CoreVariant::new(
+            *name,
+            Some(Self::reify_reference(reference)?),
+        ))
+    }
+
+    /// Reflect a [`CoreInterface`] into its interface-line mirror.
+    fn reflect_interface(
+        &self,
+        interface: &CoreInterface,
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        let mut entries = Vec::with_capacity(interface.entries().len());
+        for variant in interface.entries() {
+            entries.push(self.reflect_interface_variant(variant, names)?);
+        }
+        Ok(StructuralValue::chosen(
+            0,
+            StructuralValue::Delimited(entries),
+        ))
+    }
+
+    /// Reflect one interface variant into its `Name.Payload` entry mirror.
+    fn reflect_interface_variant(
+        &self,
+        variant: &CoreVariant,
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        let reference = variant
+            .payload()
+            .ok_or(TextualError::ReifyShape("interface entry payload"))?;
+        let reference_mirror = self.reflect_reference(reference, names)?;
+        let entry = StructuralValue::chosen(
+            0,
+            StructuralValue::Application(
+                Box::new(StructuralValue::Atom(variant.identifier())),
+                Box::new(StructuralValue::Delegated(Box::new(reference_mirror))),
+            ),
+        );
+        Ok(StructuralValue::Delegated(Box::new(entry)))
     }
 }

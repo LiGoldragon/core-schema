@@ -35,6 +35,7 @@
 //! [`PositionalSignature`]: structural_codec::ids::PositionalSignature
 
 pub mod declaration;
+pub mod document;
 pub mod error;
 pub mod fixture;
 pub mod reference;
@@ -42,8 +43,11 @@ pub mod textual;
 pub mod universe;
 
 pub use declaration::{
-    CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreSchemaDomain, CoreStruct,
-    CoreType, CoreVariant, Visibility,
+    CoreDeclaration, CoreEnum, CoreField, CoreInterface, CoreNewtype, CoreSchema, CoreSchemaDomain,
+    CoreStruct, CoreType, CoreVariant, Visibility,
+};
+pub use document::{
+    DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,
 };
 pub use error::{CoreIdentityError, TextualError, UniverseError};
 pub use fixture::FixtureFamily;

@@ -20,31 +20,107 @@ impl HashDomain for CoreSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
-            layout: LayoutVersion::new(1),
+            // Layout 2: `CoreSchema` grew the `input`/`output` interface slots of the
+            // six-slot document layout. A pre-interface value and a post-interface
+            // value hash under different layout versions, as the storage-schema
+            // change demands.
+            layout: LayoutVersion::new(2),
         }
     }
 }
 
-/// A loaded schema as a whole: the stringless declaration substrate. Names live in
-/// the accompanying `NameTable` produced by the same decode.
+/// A loaded schema as a whole: the stringless declaration substrate plus the
+/// document's input and output interface lines. Names live in the accompanying
+/// `NameTable` produced by the same decode.
+///
+/// The six-slot document layout (imports, input, output, types, generics, impls)
+/// lands its `types` block in [`declarations`](Self::declarations) and its two
+/// interface brackets in [`input`](Self::input) / [`output`](Self::output). The
+/// imports, generics, and impls slots are not yet modelled here; a document that
+/// carries content in them is rejected at decode rather than silently dropped.
+/// LEAN: `input`/`output` are captured as [`CoreInterface`] variant lists — the
+/// smallest faithful typed form, mirroring `schema-language`'s `CoreRoot::Enum`
+/// interface roots — pending a richer interface model.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct CoreSchema {
     declarations: Vec<CoreDeclaration>,
+    input: CoreInterface,
+    output: CoreInterface,
 }
 
 impl CoreSchema {
+    /// A schema with no interface lines — the declaration-only substrate.
     pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
-        Self { declarations }
+        Self {
+            declarations,
+            input: CoreInterface::empty(),
+            output: CoreInterface::empty(),
+        }
+    }
+
+    /// A whole document's substrate: the `types` declarations and the `input` /
+    /// `output` interface lines.
+    pub fn with_interfaces(
+        declarations: Vec<CoreDeclaration>,
+        input: CoreInterface,
+        output: CoreInterface,
+    ) -> Self {
+        Self {
+            declarations,
+            input,
+            output,
+        }
     }
 
     pub fn declarations(&self) -> &[CoreDeclaration] {
         &self.declarations
     }
 
+    /// The document's input interface line.
+    pub fn input(&self) -> &CoreInterface {
+        &self.input
+    }
+
+    /// The document's output interface line.
+    pub fn output(&self) -> &CoreInterface {
+        &self.output
+    }
+
     /// This schema's content identity, blake3 over its stringless rkyv bytes with
     /// the NameTable excluded by construction — a rename cannot move it.
     pub fn content_identity(&self) -> Result<ContentHash<CoreSchemaDomain>, CoreIdentityError> {
         Ok(ContentHash::of_core(self)?)
+    }
+}
+
+/// One interface line of the document — the `input` or `output` bracket. Its
+/// entries are `Name.Payload` bindings, each carried as a [`CoreVariant`]: a name
+/// and a mandatory payload reference. This reuses the variant shape exactly as
+/// `schema-language` models its interface roots (`CoreRoot::Enum`), so an entry
+/// binds a mail-type name to its payload type without a bespoke record.
+#[derive(
+    rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Default, Eq, PartialEq,
+)]
+pub struct CoreInterface {
+    entries: Vec<CoreVariant>,
+}
+
+impl CoreInterface {
+    pub fn new(entries: Vec<CoreVariant>) -> Self {
+        Self { entries }
+    }
+
+    /// The empty interface — no bound mail types.
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    pub fn entries(&self) -> &[CoreVariant] {
+        &self.entries
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
     }
 }
 
