@@ -19,7 +19,7 @@ use raw_discovery::{Block, Delimiter, Recognizer};
 use structural_codec::ids::ScopedCoreTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::value::StructuralValue;
-use structural_codec::{CanonicalText, StructuralEvaluator};
+use structural_codec::{CanonicalText, StructuralEvaluator, TextualForm};
 
 use crate::declaration::{
     CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreStruct, CoreType,
@@ -103,7 +103,7 @@ impl TextualSchema {
             .ok_or(TextualError::EmptySource)?;
         let evaluator = StructuralEvaluator::new(&self.table);
         let value = evaluator.decode(expected, block, names)?;
-        self.reify(expected, &value, names)
+        self.reify_type(expected, &value, names)
     }
 
     // The reification helpers below take the names table mutably: an elided field
@@ -118,7 +118,7 @@ impl TextualSchema {
         value: &CoreType,
         names: &mut NameTable,
     ) -> Result<String, TextualError> {
-        let mirror = self.reflect(value, names)?;
+        let mirror = self.reflect_type(value, names)?;
         let evaluator = StructuralEvaluator::new(&self.table);
         let block = evaluator.encode(expected, &mirror, names)?;
         Ok(block.canonical_text())
@@ -126,7 +126,7 @@ impl TextualSchema {
 
     // ===== reification: StructuralValue -> CoreType =====
 
-    fn reify(
+    fn reify_type(
         &self,
         expected: ScopedCoreTypeId,
         value: &StructuralValue,
@@ -242,7 +242,7 @@ impl TextualSchema {
 
     // ===== reflection: CoreType -> StructuralValue =====
 
-    fn reflect(
+    fn reflect_type(
         &self,
         value: &CoreType,
         names: &mut NameTable,
@@ -835,5 +835,49 @@ impl TextualSchema {
             ),
         );
         Ok(StructuralValue::Delegated(Box::new(entry)))
+    }
+}
+
+/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`] operation:
+/// the two organs are its authored structural table (the structuretree) and the
+/// caller's `NameTable` (the nametree), and its EncodedForm is a `CoreType`
+/// declaration. The provided `view` / `unview` reproduce this crate's own
+/// single-declaration `encode` / `decode` exactly — the operation was generalized OUT
+/// of schema, not bolted on — so schema's existing behavior proves the shared shape
+/// fits with no change (witnessed by `tests/textual_form.rs`).
+impl TextualForm for TextualSchema {
+    type Encoded = CoreType;
+    type Error = TextualError;
+
+    fn structuretree(&self) -> &AddressedStructuralTable {
+        &self.table
+    }
+
+    fn lexicon(&self) -> Option<&dyn name_table::NameResolver> {
+        self.lexicon
+            .as_ref()
+            .map(|table| table as &dyn name_table::NameResolver)
+    }
+
+    fn missing_root_object(&self) -> TextualError {
+        TextualError::EmptySource
+    }
+
+    fn reify(
+        &self,
+        expected: ScopedCoreTypeId,
+        mirror: &StructuralValue,
+        names: &mut NameTable,
+    ) -> Result<CoreType, TextualError> {
+        self.reify_type(expected, mirror, names)
+    }
+
+    fn reflect(
+        &self,
+        _expected: ScopedCoreTypeId,
+        encoded: &CoreType,
+        names: &mut NameTable,
+    ) -> Result<StructuralValue, TextualError> {
+        self.reflect_type(encoded, names)
     }
 }
