@@ -42,10 +42,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
             .view(expected, &unviewed, &mut mouth_names)
             .expect("shared view");
 
-        assert_eq!(
-            decoded, unviewed,
-            "unview reproduces decode for `{source}`"
-        );
+        assert_eq!(decoded, unviewed, "unview reproduces decode for `{source}`");
         assert_eq!(encoded, viewed, "view reproduces encode for `{source}`");
         println!("witness `{source}` => shared mouth text: {viewed}");
     }
