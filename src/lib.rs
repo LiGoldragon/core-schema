@@ -55,7 +55,7 @@ pub use reference::{
     CoreReference, MultiTypeReferenceProjection, SingleTypeReferenceProjection,
     ValueReferenceProjection,
 };
-pub use textual::TextualSchema;
+pub use textual::{SchemaLanguage, TextualSchema};
 pub use universe::{
     AssignedKind, AssignedMember, CORE_UNIVERSE, CoreUniverse, CoreUniverseBuilder, MemberKind,
     ScalarSlot, UniverseType,

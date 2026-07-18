@@ -5,11 +5,12 @@
 //! struct golden. The operation was generalized OUT of schema, so schema's existing
 //! behavior proves the shared shape fits with no change.
 
+use core_schema::SchemaLanguage;
 use core_schema::TextualSchema;
 use core_schema::declaration::CoreType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
 use name_table::NameTable;
-use structural_codec::TextualForm;
+use structural_codec::{Textual, TextualForm};
 
 #[test]
 fn view_and_unview_reproduce_encode_and_decode() {
@@ -33,14 +34,17 @@ fn view_and_unview_reproduce_encode_and_decode() {
             .encode(expected, &decoded, &mut inherent_names)
             .expect("inherent encode");
 
-        // The shared give-a-mouth operation over the same two organs.
+        // The shared give-a-mouth operation over the same two organs. Text crosses
+        // only inside the mouth's `TextualForm<SchemaLanguage>` value currency.
         let mut mouth_names = NameTable::new();
+        let source_view: TextualForm<SchemaLanguage> = TextualForm::single(source.to_string());
         let unviewed: CoreType = textual
-            .unview(expected, source, &mut mouth_names)
+            .unview(expected, &source_view, &mut mouth_names)
             .expect("shared unview");
-        let viewed: String = textual
+        let viewed_form: TextualForm<SchemaLanguage> = textual
             .view(expected, &unviewed, &mut mouth_names)
             .expect("shared view");
+        let viewed: String = viewed_form.sole_text().expect("sole view text").to_string();
 
         assert_eq!(decoded, unviewed, "unview reproduces decode for `{source}`");
         assert_eq!(encoded, viewed, "view reproduces encode for `{source}`");

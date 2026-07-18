@@ -95,6 +95,8 @@ pub enum TextualError {
     #[error(transparent)]
     Encode(#[from] EncodeError),
     #[error(transparent)]
+    SingleChunk(#[from] structural_codec::error::SingleChunkRequired),
+    #[error(transparent)]
     Names(#[from] NameTableError),
     #[error(transparent)]
     Universe(#[from] UniverseError),

@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "core-schema"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "content-identity",
  "name-table",
@@ -348,8 +348,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "structural-codec"
-version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=0e53e10f6588fb4f0bb2ed7107a50369c345f775#0e53e10f6588fb4f0bb2ed7107a50369c345f775"
+version = "0.2.0"
+source = "git+https://github.com/LiGoldragon/structural-codec.git?rev=8ca0418dfa0b2e403833201d10f527fbad38f299#8ca0418dfa0b2e403833201d10f527fbad38f299"
 dependencies = [
  "content-identity",
  "name-table",

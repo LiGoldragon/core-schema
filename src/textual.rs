@@ -19,7 +19,7 @@ use raw_discovery::{Block, Delimiter, Recognizer};
 use structural_codec::ids::ScopedCoreTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::value::StructuralValue;
-use structural_codec::{CanonicalText, StructuralEvaluator, TextualForm};
+use structural_codec::{CanonicalText, EncodedForm, StructuralEvaluator, Textual};
 
 use crate::declaration::{
     CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreStruct, CoreType,
@@ -845,8 +845,9 @@ impl TextualSchema {
 /// single-declaration `encode` / `decode` exactly — the operation was generalized OUT
 /// of schema, not bolted on — so schema's existing behavior proves the shared shape
 /// fits with no change (witnessed by `tests/textual_form.rs`).
-impl TextualForm for TextualSchema {
+impl Textual for TextualSchema {
     type Encoded = CoreType;
+    type Language = SchemaLanguage;
     type Error = TextualError;
 
     fn structuretree(&self) -> &AddressedStructuralTable {
@@ -880,4 +881,19 @@ impl TextualForm for TextualSchema {
     ) -> Result<StructuralValue, TextualError> {
         self.reflect_type(encoded, names)
     }
+}
+
+/// The schema language identity — the `T` shared by schema's truth side
+/// ([`EncodedForm`] for [`CoreSchema`]), its view side ([`Textual`] for
+/// [`TextualSchema`] producing a `TextualForm<SchemaLanguage>`), and any conversion off
+/// the schema layer. A stringless marker; it carries no runtime value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SchemaLanguage;
+
+/// [`CoreSchema`] is the reference [`EncodedForm`] of the Protos pairing: the whole-
+/// language stringless truth a [`Textual`] mouth views and an `EncodedConversion` (the
+/// schema→logos lowering in `core-nomos`) moves. Its language identity is
+/// [`SchemaLanguage`].
+impl EncodedForm for CoreSchema {
+    type Language = SchemaLanguage;
 }
