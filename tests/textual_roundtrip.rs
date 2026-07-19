@@ -8,7 +8,7 @@ use core_schema::TextualSchema;
 use core_schema::declaration::CoreType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
 use core_schema::reference::CoreReference;
-use name_table::NameTable;
+use name_table::{IdentifierNamespace, NameTable};
 use raw_discovery::Recognizer;
 use structural_codec::CanonicalText;
 
@@ -24,7 +24,7 @@ fn canonical(source: &str) -> String {
 fn name_table_rows(names: &NameTable) -> String {
     (0..names.len())
         .map(|index| {
-            let identifier = name_table::Identifier::new(index as u32);
+            let identifier = name_table::Identifier::Schema(u16::try_from(index).unwrap());
             format!(
                 "  {index} -> {}",
                 names.resolve(identifier).unwrap().as_str()
@@ -40,7 +40,7 @@ fn name_table_rows(names: &NameTable) -> String {
 fn newtype_declaration_round_trips() {
     let textual = TextualSchema::fixture().expect("build textual schema");
     let source = "CommitSequence.{ Integer }";
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(IdentifierNamespace::Schema);
 
     let value = textual
         .decode(COMMIT_SEQUENCE, source, &mut names)
@@ -76,7 +76,7 @@ fn newtype_declaration_round_trips() {
 fn struct_declaration_round_trips_positionally() {
     let textual = TextualSchema::fixture().expect("build textual schema");
     let source = "DatabaseMarker.{ CommitSequence StateDigest StateDigest }";
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(IdentifierNamespace::Schema);
 
     let value = textual
         .decode(DATABASE_MARKER, source, &mut names)
@@ -131,7 +131,7 @@ fn struct_declaration_round_trips_positionally() {
 fn decode_rejects_explicit_field_name() {
     let textual = TextualSchema::fixture().expect("build textual schema");
     let source = "DatabaseMarker.{ CommitSequence StateDigest secretDigest.StateDigest }";
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(IdentifierNamespace::Schema);
 
     let error = textual
         .decode(DATABASE_MARKER, source, &mut names)

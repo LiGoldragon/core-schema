@@ -1,73 +1,45 @@
 # core-schema
 
-The first **real** stringless Core schema layer of the next-generation NOTA
-language family, and the first **real** Textual form, `TextualSchema`.
-
-Slice one of the language-family proof-of-concept delivered four foundation
-crates — [`content-identity`], [`name-table`], [`raw-discovery`],
-[`structural-codec`] — but its universe was a *synthetic* fixture: ids that keyed
-no real Core layout. This crate makes the Core layer real, and connects it to the
-structural-form kernel through a universe bridge that closes structural-codec's
-one deferred deviation.
+`core-schema` owns the stringless encoded schema data family and its bidirectional
+`TextualSchema` view.
 
 ## What it delivers
 
-- **Stringless `CoreSchema` value types.** `CoreType { Newtype | Struct |
-  Enumeration }`, modelled on `schema-language`'s proven `CoreType`. Every name is
-  an `Identifier` into a `NameTable`; type references dispatch **by kind and
-  projection** (`CoreReference`: scalar leaves, `Plain`, and the
-  Vector/Optional/ScopeOf/Map/Bytes projections), never by a head string. Content
-  identity is blake3 over the stringless rkyv bytes with the NameTable excluded, so
-  **a rename is hash-stable by construction** (proven in `tests/identity.rs`).
+- Encoded schema declarations carry namespace-variant `Identifier` values with a
+  `u16` local allocation, never flat name indexes or embedded strings. Names live
+  in composed NameTables and are excluded from encoded content identity.
+- `CoreUniverse` derives positional constructor signatures from encoded layouts and
+  validates the authored StructureTree against them.
+- `TextualSchema` reads source through its StructureTree and emits canonical text
+  through that same tree. Struct fields are bare expected types in positional slots;
+  no field-label form exists.
+- `CoreVariant` is one ordered alternative algebra with an optional single typed
+  payload. Unit and payload variants preserve their declaration order and therefore
+  their discriminant order.
+- `StreamingRelation` is reusable encoded protocol data: opening input variant,
+  acknowledgement output variant, token type, event type, and close-token type.
+  A signal projection will generate the existing streaming frame topology from this
+  relation; no Spirit-only path and no source spelling are introduced here.
 
-- **The universe bridge** (`CoreUniverse`). A set of `CoreSchema` declarations
-  forms a `structural-codec` Core universe: one `ScopedCoreTypeId` per type, one
-  `CoreConstructorId` per constructor, and each constructor's `PositionalSignature`
-  **derived from the Core layout** — the ordered ids of its fields' referenced
-  types. `CoreUniverse::validate_table` proves every authored codec signature in a
-  structural table equals the Core field signature, and a mismatched table fails
-  loudly. This closes structural-codec's deferred *signature-vs-Core validation*
-  (previously "no Core layout in the PoC").
+## Layout and migration
 
-- **`TextualSchema`, the first real Textual form.** Real schema TEXT
-  (`CommitSequence.{ Integer }`, `DatabaseMarker.{ CommitSequence StateDigest
-  secretDigest.StateDigest }`) decodes — through raw-discovery and the trusted
-  evaluator — into real `CoreSchema` values with a real `NameTable`, and encodes
-  back to identical canonical text. The `Field` disjoint alternatives (an elided
-  name derived from the type versus an explicit `name.Type`) work against the real
-  Core layout, with the derived-name rule (`name-table`) deciding elision.
-
-- **The four conformance laws re-proven over the real Core** (`tests/laws.rs`):
-  round-trip-core, round-trip-canonical, interning atomicity, and identity
-  preservation across two textual revisions — now over a table whose signatures are
-  validated against the Core layout, not a synthetic fixture — plus the
-  rename-stability test from the identity ruling.
+Version 0.5.0 is a deliberate layout break. Layout 4 replaced the flat identifier
+with a namespace enum carrying `u16` locals; layout 5 adds ordered streaming
+relations to encoded schemas. Existing stored schema packages are regenerated with
+their paired NameTable under the new producer-to-consumer train. They are not read
+as sliced archives. The current layout's content identity is pinned by
+`tests/content_hash_witness.rs`.
 
 ## Dependencies
 
-Consumed across repositories by **pinned git rev** (the green path while the
-release train is assembled), exactly as slice one's crates consume each other:
+All Protos machinery dependencies pin the same producer revision:
+`c7510d35ae9126ea89c43aea51a11a0801a4f408`.
 
-| crate | rev |
-| --- | --- |
-| `content-identity` | `6cc0408cdb96f174cc8fdf6ca23420038de28450` |
-| `name-table` | `c3237f77c087e6feab49d6cf34971cebc14a11e6` |
-| `raw-discovery` | `a4e8c6df84e6a487ca6fe2f3641f9bafd0b0d8c8` |
-| `structural-codec` | `104f92454a5ba88b376fa706a9fe38c4a4b65ee0` |
+## Build and test
 
-## Build & test
+```sh
+nix flake check
+cargo test
+```
 
-`nix flake check` is the gate (build, test, clippy, fmt, doc). `cargo test` is the
-inner loop.
-
-## Relationship to the existing stack
-
-Greenfield by design — see `ARCHITECTURE.md`. This crate models the proven Core
-shapes of `schema-language`/`schema`/`schema-rust` in the new stringless
-discipline; it does **not** edit them. Convergence with those repositories happens
-later on the release train.
-
-[`content-identity`]: https://github.com/LiGoldragon/content-identity
-[`name-table`]: https://github.com/LiGoldragon/name-table
-[`raw-discovery`]: https://github.com/LiGoldragon/raw-discovery
-[`structural-codec`]: https://github.com/LiGoldragon/structural-codec
+`nix flake check` is the durable gate; `cargo test` is inner-loop evidence.

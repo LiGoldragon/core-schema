@@ -1,11 +1,11 @@
 [package]
 name         = "core-schema"
-version      = "0.3.0"
+version      = "0.5.0"
 edition      = "2024"
 rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/core-schema"
-description  = "The first real stringless Core schema layer and the first real Textual form (TextualSchema): stringless CoreSchema value types, the universe bridge to structural-codec with Core-derived positional signatures, and the schema-text to CoreSchema round-trip."
+description  = "The stringless EncodedSchema layer and TextualSchema form: sliced identifiers, universe signatures, and bidirectional schema text."
 publish      = false
 
 [lib]
@@ -13,10 +13,10 @@ name = "core_schema"
 path = "src/lib.rs"
 
 [dependencies]
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
-raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
-structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "c7510d35ae9126ea89c43aea51a11a0801a4f408" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "c7510d35ae9126ea89c43aea51a11a0801a4f408" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "c7510d35ae9126ea89c43aea51a11a0801a4f408" }
+structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "c7510d35ae9126ea89c43aea51a11a0801a4f408" }
 rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror        = "2"
 
@@ -27,7 +27,7 @@ thiserror        = "2"
 # (`tests/derived_conformance.rs`): the derive lives upstream in protos, but the
 # proof that its emitted entries equal these authored entries belongs here, where a
 # single pin governs both.
-structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "7e60f60fbc144265cf5ac1ec238b87744967d4eb" }
+structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "c7510d35ae9126ea89c43aea51a11a0801a4f408" }
 
 [lints.rust]
 unsafe_code = "forbid"

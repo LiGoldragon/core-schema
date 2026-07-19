@@ -20,13 +20,12 @@ impl HashDomain for CoreSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
-            // Layout 3: interface-root-ness is now carried by [`DeclarationRole`] on
-            // each [`CoreDeclaration`] — the two protocol lines are ordinary
-            // declarations tagged `InterfaceInput` / `InterfaceOutput`, no longer a
-            // separate pair of interface slots (layout 2). A layout-2 value (slots)
-            // and a layout-3 value (role-tagged declarations) hash under different
-            // layout versions, as the storage-schema change demands.
-            layout: LayoutVersion::new(3),
+            // Layout 5: `StreamingRelation` is closed encoded protocol data on
+            // CoreSchema. Layout 4 introduced namespace-variant `u16` identifiers;
+            // both layout changes are intentional producer-to-consumer breaks. Old
+            // schema packages are regenerated with their accompanying NameTable rather
+            // than decoded as sliced identifiers. Layout 3 carried interface roles.
+            layout: LayoutVersion::new(5),
         }
     }
 }
@@ -58,17 +57,88 @@ impl HashDomain for CoreSchemaDomain {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct CoreSchema {
     declarations: Vec<CoreDeclaration>,
+    streaming_relations: Vec<StreamingRelation>,
+}
+
+/// One reusable subscription protocol relation, entirely in encoded data.
+///
+/// The relation links an input opener and output acknowledgement by their ordered
+/// interface-variant identifiers, then names the encoded references for its token,
+/// event, and close-token values. A downstream signal projection generates the
+/// existing streaming-frame topology from this relation; Spirit is not named here
+/// and no source spelling is implied by this data model.
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct StreamingRelation {
+    opening_input_variant: Identifier,
+    acknowledgement_output_variant: Identifier,
+    token: CoreReference,
+    event: CoreReference,
+    close_token: CoreReference,
+}
+
+impl StreamingRelation {
+    /// Construct one closed subscription protocol relation.
+    pub fn new(
+        opening_input_variant: Identifier,
+        acknowledgement_output_variant: Identifier,
+        token: CoreReference,
+        event: CoreReference,
+        close_token: CoreReference,
+    ) -> Self {
+        Self {
+            opening_input_variant,
+            acknowledgement_output_variant,
+            token,
+            event,
+            close_token,
+        }
+    }
+
+    pub fn opening_input_variant(&self) -> Identifier {
+        self.opening_input_variant
+    }
+
+    pub fn acknowledgement_output_variant(&self) -> Identifier {
+        self.acknowledgement_output_variant
+    }
+
+    pub fn token(&self) -> &CoreReference {
+        &self.token
+    }
+
+    pub fn event(&self) -> &CoreReference {
+        &self.event
+    }
+
+    pub fn close_token(&self) -> &CoreReference {
+        &self.close_token
+    }
 }
 
 impl CoreSchema {
-    /// A schema over the given declaration substrate. Interface roots, when present,
-    /// are the declarations carrying an interface [`DeclarationRole`].
+    /// A schema over the given declaration substrate, without streaming relations.
     pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
-        Self { declarations }
+        Self::with_streaming_relations(declarations, Vec::new())
+    }
+
+    /// A schema over declarations and closed streaming protocol relations.
+    pub fn with_streaming_relations(
+        declarations: Vec<CoreDeclaration>,
+        streaming_relations: Vec<StreamingRelation>,
+    ) -> Self {
+        Self {
+            declarations,
+            streaming_relations,
+        }
     }
 
     pub fn declarations(&self) -> &[CoreDeclaration] {
         &self.declarations
+    }
+
+    /// The reusable streaming protocol relations this schema declares, in order.
+    pub fn streaming_relations(&self) -> &[StreamingRelation] {
+        &self.streaming_relations
     }
 
     /// The declarations that are ordinary data types — every declaration whose role

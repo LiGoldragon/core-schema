@@ -9,7 +9,7 @@ use core_schema::SchemaLanguage;
 use core_schema::TextualSchema;
 use core_schema::declaration::CoreType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
-use name_table::NameTable;
+use name_table::{IdentifierNamespace, NameTable};
 use structural_codec::{Textual, TextualForm};
 
 #[test]
@@ -26,7 +26,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
         let textual = TextualSchema::fixture().expect("build textual schema");
 
         // The inherent single-declaration path (schema's own decode/encode).
-        let mut inherent_names = NameTable::new();
+        let mut inherent_names = NameTable::new(IdentifierNamespace::Schema);
         let decoded: CoreType = textual
             .decode(expected, source, &mut inherent_names)
             .expect("inherent decode");
@@ -36,7 +36,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
 
         // The shared give-a-mouth operation over the same two organs. Text crosses
         // only inside the mouth's `TextualForm<SchemaLanguage>` value currency.
-        let mut mouth_names = NameTable::new();
+        let mut mouth_names = NameTable::new(IdentifierNamespace::Schema);
         let source_view: TextualForm<SchemaLanguage> = TextualForm::single(source.to_string());
         let unviewed: CoreType = textual
             .unview(expected, &source_view, &mut mouth_names)

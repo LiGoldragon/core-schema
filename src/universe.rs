@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, Name, NameResolver, NameTable};
+use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable};
 use structural_codec::ids::{
     CoreUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedCoreTypeId,
 };
@@ -377,7 +377,7 @@ impl AssignedMember {
 
 /// Builds a [`CoreUniverse`], owning the shared [`NameTable`] so declarations are
 /// constructed against the same identifier space the universe resolves through.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CoreUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
@@ -392,6 +392,16 @@ pub enum ScalarSlot {
     Text,
     Boolean,
     Bytes,
+}
+
+impl Default for CoreUniverseBuilder {
+    fn default() -> Self {
+        Self {
+            names: NameTable::new(IdentifierNamespace::Schema),
+            members: Vec::new(),
+            scalars: HashMap::new(),
+        }
+    }
 }
 
 impl CoreUniverseBuilder {
