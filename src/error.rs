@@ -74,9 +74,13 @@ pub enum TextualError {
     #[error(transparent)]
     SingleChunk(#[from] structural_codec::error::SingleChunkRequired),
     #[error(transparent)]
+    NamedChunk(#[from] structural_codec::error::NamedChunkRequired),
+    #[error(transparent)]
     Names(#[from] NameTableError),
     #[error(transparent)]
     Universe(#[from] UniverseError),
+    #[error(transparent)]
+    Manifest(#[from] crate::manifest::SchemaManifestError),
     #[error("the decoded structural value did not fit the expected {0} shape at reification")]
     ReifyShape(&'static str),
     #[error("reification met an unknown type name {0:?} that is not a universe type")]
