@@ -13,10 +13,10 @@ name = "core_schema"
 path = "src/lib.rs"
 
 [dependencies]
-content-identity = { git = "https://github.com/LiGoldragon/content-identity.git", rev = "6cc0408cdb96f174cc8fdf6ca23420038de28450" }
-name-table       = { git = "https://github.com/LiGoldragon/name-table.git", rev = "c3237f77c087e6feab49d6cf34971cebc14a11e6" }
-raw-discovery    = { git = "https://github.com/LiGoldragon/raw-discovery.git", rev = "a4e8c6df84e6a487ca6fe2f3641f9bafd0b0d8c8" }
-structural-codec = { git = "https://github.com/LiGoldragon/structural-codec.git", rev = "8ca0418dfa0b2e403833201d10f527fbad38f299" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "18ae746857979c9c01c0d4b315bb8a818056cf09" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "18ae746857979c9c01c0d4b315bb8a818056cf09" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "18ae746857979c9c01c0d4b315bb8a818056cf09" }
+structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "18ae746857979c9c01c0d4b315bb8a818056cf09" }
 rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror        = "2"
 
