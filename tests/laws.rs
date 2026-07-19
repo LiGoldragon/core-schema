@@ -1,11 +1,11 @@
-//! The four conformance laws, re-proven with the REAL `CoreSchema` universe as the
+//! The four conformance laws, re-proven with the REAL `EncodedSchema` universe as the
 //! table (not slice one's synthetic fixture): the authored table's forms are
 //! validated against the Core layout, and the evaluator satisfies every law over it.
 
 use core_schema::fixture::{COMMIT_SEQUENCE, DOCUMENTATION, FIELD, FLOAT, FixtureFamily};
 use name_table::{Name, NameTable};
 use raw_discovery::{Block, Delimiter, Recognizer};
-use structural_codec::ids::ScopedCoreTypeId;
+use structural_codec::ids::ScopedEncodedTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::{CanonicalText, StructuralEvaluator};
 
@@ -39,7 +39,7 @@ fn the_table_agrees_with_the_core_layout() {
 fn law_one_round_trip_core() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
-    let cases: &[(ScopedCoreTypeId, &str)] = &[
+    let cases: &[(ScopedEncodedTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
         // A field is a bare positional type reference; field names are illegal, so the
         // only field spelling is the type itself.
@@ -69,7 +69,7 @@ fn law_one_round_trip_core() {
 fn law_two_round_trip_canonical() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
-    let cases: &[(ScopedCoreTypeId, &str)] = &[
+    let cases: &[(ScopedEncodedTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
         // A field is a bare positional type reference; field names are illegal.
         (FIELD, "Integer"),

@@ -1,5 +1,5 @@
 //! The stringless by-kind type reference. Mirrors `schema-language`'s
-//! `CoreReference` one-for-one: scalar leaves are structure, a `Plain` reference
+//! `EncodedReference` one-for-one: scalar leaves are structure, a `Plain` reference
 //! names a declaration by [`Identifier`] (never a string), and every generic
 //! application dispatches on its **kind and projection**, never on a head string
 //! — the "generics lower by kind" ruling made concrete in the type.
@@ -41,7 +41,7 @@ pub enum ValueReferenceProjection {
     deserialize_bounds(__D::Error: rkyv::rancor::Source),
     bytecheck(bounds(__C: rkyv::validation::ArchiveContext, __C::Error: rkyv::rancor::Source)),
 )]
-pub enum CoreReference {
+pub enum EncodedReference {
     String,
     Integer,
     Boolean,
@@ -50,12 +50,12 @@ pub enum CoreReference {
     SingleTypeApplication {
         projection: SingleTypeReferenceProjection,
         #[rkyv(omit_bounds)]
-        argument: Box<CoreReference>,
+        argument: Box<EncodedReference>,
     },
     MultiTypeApplication {
         projection: MultiTypeReferenceProjection,
         #[rkyv(omit_bounds)]
-        arguments: Vec<CoreReference>,
+        arguments: Vec<EncodedReference>,
     },
     ValueApplication {
         projection: ValueReferenceProjection,
@@ -63,7 +63,7 @@ pub enum CoreReference {
     },
 }
 
-impl CoreReference {
+impl EncodedReference {
     /// The `snake_case` field name this reference derives, used to decide whether a
     /// field's text name may be elided (the derived-name rule). It is the
     /// [`field_name`](Name::field_name) of the type name this reference presents in
@@ -100,7 +100,7 @@ impl CoreReference {
     /// application re-stamps its argument(s) the same way. Scalar leaves and value
     /// applications carry no identifier, so they are returned unchanged. This is how
     /// the authority-provided universe path
-    /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
+    /// ([`EncodedUniverse::from_assignment`](crate::universe::EncodedUniverse::from_assignment))
     /// makes a `Plain` cross-reference's stored identifier a deterministic function of
     /// the canonical interning order rather than of the order the source parsed.
     pub fn restamp<Source, Canonical>(

@@ -2,8 +2,8 @@
 //! excluded, so a rename is hash-stable by construction while a structural edit
 //! moves the hash.
 
-use core_schema::declaration::{CoreNewtype, CoreType};
-use core_schema::{CoreDeclaration, CoreReference, CoreSchema, FixtureFamily};
+use core_schema::declaration::{EncodedNewtype, EncodedType};
+use core_schema::{EncodedDeclaration, EncodedReference, EncodedSchema, FixtureFamily};
 use name_table::{Name, NameTable};
 
 /// Rebuild a table identical to `original` except that identifier `target` resolves
@@ -27,7 +27,7 @@ fn rename(original: &NameTable, target: name_table::Identifier, replacement: &st
     renamed
 }
 
-/// A rename is a NameTable-only edit: the CoreSchema value is untouched, so its
+/// A rename is a NameTable-only edit: the EncodedSchema value is untouched, so its
 /// content identity does not move, even though the projected name genuinely changes.
 #[test]
 fn a_rename_leaves_core_identity_unchanged() {
@@ -66,12 +66,12 @@ fn a_structural_edit_moves_core_identity() {
     // A one-declaration schema and the same declaration with an extra newtype hash
     // differently.
     let commit = family.schema().declarations()[0].clone();
-    let smaller = CoreSchema::new(vec![commit.clone()]);
-    let larger = CoreSchema::new(vec![
+    let smaller = EncodedSchema::new(vec![commit.clone()]);
+    let larger = EncodedSchema::new(vec![
         commit,
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             name_table::Identifier::new(999),
-            CoreReference::Boolean,
+            EncodedReference::Boolean,
         ))),
     ]);
 
