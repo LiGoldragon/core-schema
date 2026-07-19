@@ -21,7 +21,7 @@ use raw_discovery::{Block, Delimiter, Recognizer};
 use structural_codec::ids::ScopedEncodedTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::value::StructuralValue;
-use structural_codec::{CanonicalText, EncodedForm, StructuralEvaluator, Textual};
+use structural_codec::{CanonicalText, EncodedForm, StructuralEvaluator, Textual, TextualForm};
 
 use crate::declaration::{
     DeclarationRole, EncodedDeclaration, EncodedEnum, EncodedField, EncodedNewtype, EncodedSchema,
@@ -33,6 +33,9 @@ use crate::document::{
 };
 use crate::error::TextualError;
 use crate::fixture::FixtureFamily;
+use crate::manifest::{
+    ManifestSchema, SchemaManifest, SchemaManifestFileStructure, SchemaManifestStructure,
+};
 use crate::reference::EncodedReference;
 use crate::universe::{ENCODED_UNIVERSE, EncodedUniverse, EncodedUniverseBuilder};
 
@@ -488,9 +491,14 @@ impl TextualSchema {
         let types = self.decode_types_slot(&roots[3], names)?;
         Self::require_empty_brace(&roots[4], "generics")?;
         Self::require_empty_brace(&roots[5], "impls")?;
-        let mut declarations = Vec::with_capacity(types.len() + 2);
-        declarations.push(input);
-        declarations.push(output);
+        let mut declarations =
+            Vec::with_capacity(types.len() + input.iter().count() + output.iter().count());
+        if let Some(input) = input {
+            declarations.push(input);
+        }
+        if let Some(output) = output {
+            declarations.push(output);
+        }
         declarations.extend(types);
         Ok(EncodedSchema::new(declarations))
     }
@@ -504,21 +512,125 @@ impl TextualSchema {
         schema: &EncodedSchema,
         names: &mut NameTable,
     ) -> Result<String, TextualError> {
-        let input = schema
-            .input()
-            .ok_or(TextualError::MissingInterfaceRoot("input"))?;
-        let output = schema
-            .output()
-            .ok_or(TextualError::MissingInterfaceRoot("output"))?;
+        let input = match schema.input() {
+            Some(input) => self.encode_interface_slot(input, names)?,
+            None => Self::empty_square(),
+        };
+        let output = match schema.output() {
+            Some(output) => self.encode_interface_slot(output, names)?,
+            None => Self::empty_square(),
+        };
         let slots = [
             Self::empty_brace(),
-            self.encode_interface_slot(input, names)?,
-            self.encode_interface_slot(output, names)?,
+            input,
+            output,
             self.encode_types_slot(schema, names)?,
             Self::empty_brace(),
             Self::empty_brace(),
         ];
         Ok(slots.join("\n"))
+    }
+
+    /// Decode an explicit manifest of schema source files into one encoded schema and
+    /// the file-layout StructureTree needed to emit the same TextualForm again. Files
+    /// are decoded in dependency order, while output retains the manifest's explicit
+    /// order. The NameTable is shared across the entire manifest, so cross-file
+    /// encoded identifiers occupy one continuous namespace without entering Nomos.
+    pub fn decode_manifest(
+        &self,
+        manifest: &SchemaManifest,
+        view: &TextualForm<SchemaLanguage>,
+        names: &mut NameTable,
+    ) -> Result<ManifestSchema, TextualError> {
+        for chunk in view.chunks() {
+            if !manifest
+                .files()
+                .iter()
+                .any(|file| file.path() == &chunk.name)
+            {
+                return Err(crate::manifest::SchemaManifestError::UnexpectedSourceFile {
+                    path: chunk.name.0.clone(),
+                }
+                .into());
+            }
+        }
+
+        let mut declarations = Vec::new();
+        let mut positions = std::collections::BTreeMap::new();
+        let mut identifiers = std::collections::BTreeSet::new();
+        for file in manifest.dependency_order()? {
+            let chunk = view.named_chunk(file.path())?;
+            let decoded = self.decode_document(&chunk.text, names)?;
+            let start = declarations.len();
+            for declaration in decoded.declarations() {
+                if !identifiers.insert(declaration.identifier()) {
+                    return Err(
+                        crate::manifest::SchemaManifestError::DuplicateDeclarationIdentifier {
+                            identifier: declaration.identifier(),
+                        }
+                        .into(),
+                    );
+                }
+                declarations.push(declaration.clone());
+            }
+            positions.insert(
+                file.path().0.clone(),
+                (start..declarations.len()).collect::<Vec<_>>(),
+            );
+        }
+
+        let structure = SchemaManifestStructure::new(
+            manifest
+                .files()
+                .iter()
+                .map(|file| {
+                    SchemaManifestFileStructure::new(
+                        file.path().clone(),
+                        positions
+                            .remove(&file.path().0)
+                            .expect("validated manifest file has a decoded position list"),
+                    )
+                })
+                .collect(),
+        );
+        structure.validate(manifest, declarations.len())?;
+        Ok(ManifestSchema::new(
+            EncodedSchema::new(declarations),
+            structure,
+        ))
+    }
+
+    /// Emit a manifest-backed encoded schema through the StructureTree captured or
+    /// authored for it. No file path is stored in the EncodedForm: the structure owns
+    /// file allocation, the NameTable owns names, and the encoder uses the same
+    /// document grammar in the reverse direction.
+    pub fn encode_manifest(
+        &self,
+        manifest: &SchemaManifest,
+        decoded: &ManifestSchema,
+        names: &mut NameTable,
+    ) -> Result<TextualForm<SchemaLanguage>, TextualError> {
+        decoded
+            .structure()
+            .validate(manifest, decoded.encoded().declarations().len())?;
+        let mut chunks = Vec::with_capacity(manifest.files().len());
+        for file in manifest.files() {
+            let allocation = decoded
+                .structure()
+                .file(file.path())
+                .expect("validated structure has every manifest file");
+            let declarations = allocation
+                .declaration_positions()
+                .iter()
+                .map(|position| decoded.encoded().declarations()[*position].clone())
+                .collect();
+            let file_schema = EncodedSchema::new(declarations);
+            chunks.push(structural_codec::TextChunk {
+                name: file.path().clone(),
+                text: self.encode_document(&file_schema, names)?,
+            });
+        }
+        Ok(TextualForm::from_chunks(chunks))
     }
 
     /// The evaluator for the document grammar: with the keyword lexicon when the table
@@ -533,6 +645,13 @@ impl TextualSchema {
     /// The canonical empty brace an unmodelled document slot renders to.
     fn empty_brace() -> String {
         Delimiter::Brace.wrap(std::iter::empty::<String>())
+    }
+
+    /// The canonical empty interface slot. A manifest library file carries no
+    /// protocol root; it is an empty bracket, never a fabricated empty `Input` or
+    /// `Output` declaration.
+    fn empty_square() -> String {
+        Delimiter::SquareBracket.wrap(std::iter::empty::<String>())
     }
 
     /// Prove a document slot is an empty brace; otherwise a loud, typed slot error.
@@ -553,17 +672,20 @@ impl TextualSchema {
         block: &Block,
         role: DeclarationRole,
         names: &mut NameTable,
-    ) -> Result<EncodedDeclaration, TextualError> {
+    ) -> Result<Option<EncodedDeclaration>, TextualError> {
+        if matches!(block.as_delimited(Delimiter::SquareBracket), Some([])) {
+            return Ok(None);
+        }
         let value = self.document_evaluator().decode(INTERFACE, block, names)?;
         let variants = Self::reify_interface_variants(&value)?;
         let name = names.intern(Name::new(
             role.interface_root_name()
                 .ok_or(TextualError::ReifyShape("interface role"))?,
         ));
-        Ok(EncodedDeclaration::interface(
+        Ok(Some(EncodedDeclaration::interface(
             role,
             EncodedType::Enumeration(EncodedEnum::new(name, variants)),
-        ))
+        )))
     }
 
     fn encode_interface_slot(
@@ -810,7 +932,7 @@ impl TextualSchema {
     }
 }
 
-/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`](structural_codec::TextualForm) operation:
+/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`] operation:
 /// the two organs are its authored structural table (the structuretree) and the
 /// caller's `NameTable` (the nametree), and its EncodedForm is a `EncodedType`
 /// declaration. The provided `view` / `unview` reproduce this crate's own

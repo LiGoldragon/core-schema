@@ -38,6 +38,7 @@ pub mod declaration;
 pub mod document;
 pub mod error;
 pub mod fixture;
+pub mod manifest;
 pub mod reference;
 pub mod textual;
 pub mod universe;
@@ -51,6 +52,10 @@ pub use document::{
 };
 pub use error::{EncodedIdentityError, TextualError, UniverseError};
 pub use fixture::FixtureFamily;
+pub use manifest::{
+    ManifestSchema, SchemaManifest, SchemaManifestError, SchemaManifestFile,
+    SchemaManifestFileStructure, SchemaManifestStructure,
+};
 pub use reference::{
     EncodedReference, MultiTypeReferenceProjection, SingleTypeReferenceProjection,
     ValueReferenceProjection,
