@@ -25,16 +25,16 @@ and closes the deferred deviation.
 
 ## The stringless Core layer
 
-`CoreType { Newtype | Struct | Enumeration }` is modelled one-for-one on
-`schema-language`'s proven `CoreType` (`schema-language/src/core.rs`). The
+`EncodedType { Newtype | Struct | Enumeration }` is modelled one-for-one on
+`schema-language`'s proven `EncodedType` (`schema-language/src/core.rs`). The
 faithful shapes carried over:
 
 - Every name is an `Identifier` into a `NameTable`; the declarations carry no
-  strings. Content identity (`CoreSchemaDomain`, blake3 over stringless rkyv bytes
+  strings. Content identity (`EncodedSchemaDomain`, blake3 over stringless rkyv bytes
   via `content-identity`'s `ContentHash::of_core`) excludes the NameTable, so a
   rename is hash-stable by construction — a structural edit moves the hash, a
   rename does not.
-- `CoreReference` dispatches **by kind and projection, never a head string**: the
+- `EncodedReference` dispatches **by kind and projection, never a head string**: the
   scalar leaves, `Plain(Identifier)`, and the `SingleTypeReferenceProjection {
   Vector | Optional | ScopeOf }` / `MultiTypeReferenceProjection { Map }` /
   `ValueReferenceProjection { Bytes }` applications lifted verbatim from the ground
@@ -42,20 +42,20 @@ faithful shapes carried over:
 
 ## The universe bridge (the crux)
 
-`CoreUniverse` turns a set of `CoreSchema` declarations into a structural-codec Core
+`EncodedUniverse` turns a set of `EncodedSchema` declarations into a structural-codec Core
 universe:
 
-- **Id allocation.** One `ScopedCoreTypeId` per Core type — the scalar-leaf
+- **Id allocation.** One `ScopedEncodedTypeId` per Core type — the scalar-leaf
   primitives, the `Field` meta-type, and each user declaration — in an explicit
   fixture universe (the "unit of one schema" question stays parked with the psyche,
-  `primary-56d1.11`). One `CoreConstructorId` per constructor: a product (newtype,
+  `primary-56d1.11`). One `EncodedConstructorId` per constructor: a product (newtype,
   struct) has one; a sum (enumeration) one per variant.
-- **Signature derivation.** `CoreUniverse::core_signature` derives, from the Core
+- **Signature derivation.** `EncodedUniverse::core_signature` derives, from the Core
   layout alone, each constructor's `PositionalSignature`: the ordered universe-type
   ids of its fields' **referenced** types. A newtype yields `[inner]`; the
   `DatabaseMarker` struct yields `[CommitSequence, StateDigest, StateDigest]`; a
   variant with a payload yields `[payload]`, without yields `[]`.
-- **Validation — the deferred deviation, closed.** `CoreUniverse::validate_table`
+- **Validation — the deferred deviation, closed.** `EncodedUniverse::validate_table`
   walks an authored `AddressedStructuralTable` and proves every `ConstructorCodec`
   signature equals the Core field signature (and that constructor counts match). A
   mismatch is the loud, typed `UniverseError::SignatureMismatch`. The authored table
@@ -64,23 +64,23 @@ universe:
   so the agreement test is real, not a tautology — `tests/universe_bridge.rs` proves
   both the agreement and the loud rejection of a corrupted table.
 
-The table's `core_layout_identity` is the schema's own `CoreSchema` content hash,
+The table's `core_layout_identity` is the schema's own `EncodedSchema` content hash,
 tying each structural table to the exact stringless Core it targets while the table
 identity itself stays **excluded** from Core value identity (law 4).
 
 ### Two construction modes: offline fixture vs authority-provided
 
-`CoreUniverse` is built two ways, and the distinction is load-bearing for the
+`EncodedUniverse` is built two ways, and the distinction is load-bearing for the
 identity keystone (`primary-56d1.11`, design v2):
 
-- **Local / offline mode** — `CoreUniverseBuilder` interns names in call order and
+- **Local / offline mode** — `EncodedUniverseBuilder` interns names in call order and
   the caller assigns type ids (the `fixture` family's hardcoded fixture ids). This is
   the self-contained path the existing tests use. It is a **lean**: because interning
   is parse-order, two ingestions of one declared schema that parse its declarations in
   different orders assign different name indices and declaration orders, so their Core
   values — hence content identities — diverge. That is exactly the "same thing,
   re-ID'ed" defect the keystone forbids.
-- **Authority-provided mode** — `CoreUniverse::from_assignment(universe, members)`
+- **Authority-provided mode** — `EncodedUniverse::from_assignment(universe, members)`
   takes a central-authority-minted universe id and a set of `AssignedMember`s (each a
   declared name, its authority-assigned local, and its kind). It registers members in
   ascending assigned-local order, interns names in that same canonical order, and
@@ -118,8 +118,8 @@ is the Core-first split made concrete, and it is why the evaluator walks forms w
 `TextualSchema` is one bidirectional codec over the universe. Decode: raw-discovery
 recognizes text into a `Block`; structural-codec's trusted evaluator decodes it
 (under the expected Core type) to a generic `StructuralValue`; `core-schema`
-**reifies** that mirror into a real `CoreType` with a real `NameTable`. Encode
-**reflects** a `CoreType` back into a `StructuralValue`, the evaluator renders it to
+**reifies** that mirror into a real `EncodedType` with a real `NameTable`. Encode
+**reflects** a `EncodedType` back into a `StructuralValue`, the evaluator renders it to
 a `Block`, and it is written as canonical text. The `Field` elided-vs-explicit
 alternatives are resolved against the real Core layout by name-table's derived-name
 rule: a field name is elided in text exactly when it equals the `snake_case` of its
@@ -161,7 +161,7 @@ then the git pins in `Cargo.toml` are authoritative.
    primitive (one more delegate hop); the chosen reading matches the fixture's
    `Text`-as-leaf.
 4. **Generic applications (Vector/Optional/Map/ScopeOf/Bytes-value) are modelled in
-   `CoreReference` but have no allocated universe type** in this PoC universe: the
+   `EncodedReference` but have no allocated universe type** in this PoC universe: the
    fixture family uses none, and `resolve_reference` returns a loud
    `UnsupportedApplication` rather than guessing. Allocating application types is the
    next universe-bridge extension.

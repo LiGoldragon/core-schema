@@ -12,19 +12,19 @@ one deferred deviation.
 
 ## What it delivers
 
-- **Stringless `CoreSchema` value types.** `CoreType { Newtype | Struct |
-  Enumeration }`, modelled on `schema-language`'s proven `CoreType`. Every name is
+- **Stringless `EncodedSchema` value types.** `EncodedType { Newtype | Struct |
+  Enumeration }`, modelled on `schema-language`'s proven `EncodedType`. Every name is
   an `Identifier` into a `NameTable`; type references dispatch **by kind and
-  projection** (`CoreReference`: scalar leaves, `Plain`, and the
+  projection** (`EncodedReference`: scalar leaves, `Plain`, and the
   Vector/Optional/ScopeOf/Map/Bytes projections), never by a head string. Content
   identity is blake3 over the stringless rkyv bytes with the NameTable excluded, so
   **a rename is hash-stable by construction** (proven in `tests/identity.rs`).
 
-- **The universe bridge** (`CoreUniverse`). A set of `CoreSchema` declarations
-  forms a `structural-codec` Core universe: one `ScopedCoreTypeId` per type, one
-  `CoreConstructorId` per constructor, and each constructor's `PositionalSignature`
+- **The universe bridge** (`EncodedUniverse`). A set of `EncodedSchema` declarations
+  forms a `structural-codec` Core universe: one `ScopedEncodedTypeId` per type, one
+  `EncodedConstructorId` per constructor, and each constructor's `PositionalSignature`
   **derived from the Core layout** — the ordered ids of its fields' referenced
-  types. `CoreUniverse::validate_table` proves every authored codec signature in a
+  types. `EncodedUniverse::validate_table` proves every authored codec signature in a
   structural table equals the Core field signature, and a mismatched table fails
   loudly. This closes structural-codec's deferred *signature-vs-Core validation*
   (previously "no Core layout in the PoC").
@@ -32,7 +32,7 @@ one deferred deviation.
 - **`TextualSchema`, the first real Textual form.** Real schema TEXT
   (`CommitSequence.{ Integer }`, `DatabaseMarker.{ CommitSequence StateDigest
   secretDigest.StateDigest }`) decodes — through raw-discovery and the trusted
-  evaluator — into real `CoreSchema` values with a real `NameTable`, and encodes
+  evaluator — into real `EncodedSchema` values with a real `NameTable`, and encodes
   back to identical canonical text. The `Field` disjoint alternatives (an elided
   name derived from the type versus an explicit `name.Type`) work against the real
   Core layout, with the derived-name rule (`name-table`) deciding elision.

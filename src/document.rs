@@ -1,7 +1,7 @@
 //! The six-slot document grammar: the universe types and authored `structural-codec`
 //! forms that let [`TextualSchema`] decode a whole spirit-min-shaped document —
 //! `imports {} input [] output [] types {} generics {} impls {}` — into a full
-//! [`CoreSchema`], and encode it back.
+//! [`EncodedSchema`], and encode it back.
 //!
 //! Unlike the per-declaration fixture universe ([`crate::fixture`]), these are the
 //! GRAMMAR types self-hosted in `schema-language`'s `root.schema`: a `TypeReference`
@@ -15,37 +15,37 @@
 //! authored table and the reifier can never drift.
 //!
 //! [`TextualSchema`]: crate::textual::TextualSchema
-//! [`CoreSchema`]: crate::declaration::CoreSchema
+//! [`EncodedSchema`]: crate::declaration::EncodedSchema
 
 use std::collections::BTreeMap;
 
 use name_table::{Name, NameTable};
 use raw_discovery::Delimiter;
 use structural_codec::ids::{
-    CoreConstructorId, PositionalSignature, ScopedCoreTypeId, StructuralRevision,
+    EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId, StructuralRevision,
 };
 use structural_codec::table::{
-    AddressedStructuralTable, CoreLayoutIdentity, RawProfileIdentity, TableIdentityPayload,
+    AddressedStructuralTable, EncodedLayoutIdentity, RawProfileIdentity, TableIdentityPayload,
 };
 use structural_codec::{ConstructorCodec, SequenceForm, StructuralEntry, StructuralForm};
 
 use crate::error::UniverseError;
-use crate::reference::{CoreReference, SingleTypeReferenceProjection};
-use crate::universe::CORE_UNIVERSE;
+use crate::reference::{EncodedReference, SingleTypeReferenceProjection};
+use crate::universe::ENCODED_UNIVERSE;
 
 /// The `TypeReference` grammar type: a reference met at a use site.
-pub const TYPE_REFERENCE: ScopedCoreTypeId = ScopedCoreTypeId::fixture(100);
+pub const TYPE_REFERENCE: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(100);
 /// The `Field` meta-type: a bare positional `Type` struct field — field names are
 /// illegal, so there is no `name.Type` form.
-pub const FIELD: ScopedCoreTypeId = ScopedCoreTypeId::fixture(101);
+pub const FIELD: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(101);
 /// The `Declaration` grammar type: a newtype, struct, or enumeration declaration.
-pub const DECLARATION: ScopedCoreTypeId = ScopedCoreTypeId::fixture(102);
+pub const DECLARATION: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(102);
 /// The `types` block: a brace of declarations.
-pub const TYPES_BLOCK: ScopedCoreTypeId = ScopedCoreTypeId::fixture(103);
+pub const TYPES_BLOCK: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(103);
 /// One interface entry: a `Name.Payload` mail-type binding.
-pub const INTERFACE_VARIANT: ScopedCoreTypeId = ScopedCoreTypeId::fixture(104);
+pub const INTERFACE_VARIANT: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(104);
 /// An interface line: a bracket of interface entries (the `input` / `output` slot).
-pub const INTERFACE: ScopedCoreTypeId = ScopedCoreTypeId::fixture(105);
+pub const INTERFACE: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(105);
 
 /// The number of root slots in the document layout: `imports input output types
 /// generics impls`, in that order.
@@ -104,12 +104,12 @@ impl ReferenceConstructor {
     }
 
     /// The scalar leaf reference this constructor decodes to, if it is a scalar.
-    pub fn scalar(self) -> Option<CoreReference> {
+    pub fn scalar(self) -> Option<EncodedReference> {
         match self {
-            Self::Integer => Some(CoreReference::Integer),
-            Self::String => Some(CoreReference::String),
-            Self::Boolean => Some(CoreReference::Boolean),
-            Self::Bytes => Some(CoreReference::Bytes),
+            Self::Integer => Some(EncodedReference::Integer),
+            Self::String => Some(EncodedReference::String),
+            Self::Boolean => Some(EncodedReference::Boolean),
+            Self::Bytes => Some(EncodedReference::Bytes),
             Self::Vector | Self::Optional | Self::ScopeOf | Self::Plain => None,
         }
     }
@@ -182,17 +182,17 @@ impl SchemaDocumentGrammar {
     /// Author and seal the grammar table with its keyword lexicon.
     pub fn build() -> Result<Self, UniverseError> {
         let mut author = DocumentTableAuthor::new();
-        let entries: BTreeMap<ScopedCoreTypeId, StructuralEntry> = author
+        let entries: BTreeMap<ScopedEncodedTypeId, StructuralEntry> = author
             .entries()
             .into_iter()
             .map(|entry| (entry.core_type, entry))
             .collect();
         let payload = TableIdentityPayload {
-            core_universe: CORE_UNIVERSE,
+            core_universe: ENCODED_UNIVERSE,
             // The grammar table targets no single Core layout — it decodes many — so
             // its layout identity is a fixed grammar marker, not a schema hash. Table
             // identity is excluded from Core value identity by construction.
-            core_layout_identity: CoreLayoutIdentity([0x6d; 32]),
+            core_layout_identity: EncodedLayoutIdentity([0x6d; 32]),
             raw_profile_identity: RawProfileIdentity([1u8; 32]),
             committed_lexicon: b"core-schema-document-grammar".to_vec(),
             leaf_codec_contracts: Vec::new(),
@@ -240,11 +240,11 @@ impl DocumentTableAuthor {
     /// A single-constructor entry: one disjoint decode form, the same canonical encode
     /// form, and an empty signature (the grammar is not signature-validated against a
     /// Core layout — see [`SchemaDocumentGrammar`]).
-    fn single(core_type: ScopedCoreTypeId, form: StructuralForm) -> StructuralEntry {
+    fn single(core_type: ScopedEncodedTypeId, form: StructuralForm) -> StructuralEntry {
         StructuralEntry::new(
             core_type,
             vec![ConstructorCodec::new(
-                CoreConstructorId::new(core_type, 0),
+                EncodedConstructorId::new(core_type, 0),
                 vec![form.clone()],
                 form,
                 PositionalSignature::default(),
@@ -280,7 +280,7 @@ impl DocumentTableAuthor {
                     Some(keyword) => self.literal(keyword),
                 };
                 ConstructorCodec::new(
-                    CoreConstructorId::new(TYPE_REFERENCE, constructor.index()),
+                    EncodedConstructorId::new(TYPE_REFERENCE, constructor.index()),
                     vec![form.clone()],
                     form,
                     PositionalSignature::default(),
@@ -301,7 +301,7 @@ impl DocumentTableAuthor {
         StructuralEntry::new(
             FIELD,
             vec![ConstructorCodec::new(
-                CoreConstructorId::new(FIELD, 0),
+                EncodedConstructorId::new(FIELD, 0),
                 vec![type_only.clone()],
                 type_only,
                 PositionalSignature::default(),
@@ -336,7 +336,7 @@ impl DocumentTableAuthor {
             .zip(forms)
             .map(|(constructor, form)| {
                 ConstructorCodec::new(
-                    CoreConstructorId::new(DECLARATION, constructor.index()),
+                    EncodedConstructorId::new(DECLARATION, constructor.index()),
                     vec![form.clone()],
                     form,
                     PositionalSignature::default(),

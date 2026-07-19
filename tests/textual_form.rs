@@ -7,7 +7,7 @@
 
 use core_schema::SchemaLanguage;
 use core_schema::TextualSchema;
-use core_schema::declaration::CoreType;
+use core_schema::declaration::EncodedType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
 use name_table::NameTable;
 use structural_codec::{Textual, TextualForm};
@@ -27,7 +27,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
 
         // The inherent single-declaration path (schema's own decode/encode).
         let mut inherent_names = NameTable::new();
-        let decoded: CoreType = textual
+        let decoded: EncodedType = textual
             .decode(expected, source, &mut inherent_names)
             .expect("inherent decode");
         let encoded: String = textual
@@ -38,7 +38,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
         // only inside the mouth's `TextualForm<SchemaLanguage>` value currency.
         let mut mouth_names = NameTable::new();
         let source_view: TextualForm<SchemaLanguage> = TextualForm::single(source.to_string());
-        let unviewed: CoreType = textual
+        let unviewed: EncodedType = textual
             .unview(expected, &source_view, &mut mouth_names)
             .expect("shared unview");
         let viewed_form: TextualForm<SchemaLanguage> = textual

@@ -1,5 +1,5 @@
-//! The stringless `CoreSchema` declaration family, modelled on `schema-language`'s
-//! `CoreType { Struct | Enum | Newtype }`. Every name is an [`Identifier`] into the
+//! The stringless `EncodedSchema` declaration family, modelled on `schema-language`'s
+//! `EncodedType { Struct | Enum | Newtype }`. Every name is an [`Identifier`] into the
 //! [`NameTable`]; the declarations carry no strings, so a rename is a table-only
 //! edit that never moves a Core value's content identity.
 //!
@@ -8,20 +8,20 @@
 use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
 use name_table::{Identifier, NameInterner, NameResolver, NameTableError};
 
-use crate::error::CoreIdentityError;
-use crate::reference::CoreReference;
+use crate::error::EncodedIdentityError;
+use crate::reference::EncodedReference;
 
-/// The hash domain for stringless CoreSchema values, layout-version tagged. A
-/// CoreSchema value's identity is blake3 over its stringless rkyv bytes under this
+/// The hash domain for stringless EncodedSchema values, layout-version tagged. A
+/// EncodedSchema value's identity is blake3 over its stringless rkyv bytes under this
 /// domain; the NameTable is not in the pre-image, so identity is rename-stable.
-pub struct CoreSchemaDomain;
+pub struct EncodedSchemaDomain;
 
-impl HashDomain for CoreSchemaDomain {
+impl HashDomain for EncodedSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
             // Layout 3: interface-root-ness is now carried by [`DeclarationRole`] on
-            // each [`CoreDeclaration`] — the two protocol lines are ordinary
+            // each [`EncodedDeclaration`] — the two protocol lines are ordinary
             // declarations tagged `InterfaceInput` / `InterfaceOutput`, no longer a
             // separate pair of interface slots (layout 2). A layout-2 value (slots)
             // and a layout-3 value (role-tagged declarations) hash under different
@@ -56,24 +56,24 @@ impl HashDomain for CoreSchemaDomain {
 /// document-kind design review, which may reshape how interface roots and the
 /// document kinds relate.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreSchema {
-    declarations: Vec<CoreDeclaration>,
+pub struct EncodedSchema {
+    declarations: Vec<EncodedDeclaration>,
 }
 
-impl CoreSchema {
+impl EncodedSchema {
     /// A schema over the given declaration substrate. Interface roots, when present,
     /// are the declarations carrying an interface [`DeclarationRole`].
-    pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
+    pub fn new(declarations: Vec<EncodedDeclaration>) -> Self {
         Self { declarations }
     }
 
-    pub fn declarations(&self) -> &[CoreDeclaration] {
+    pub fn declarations(&self) -> &[EncodedDeclaration] {
         &self.declarations
     }
 
     /// The declarations that are ordinary data types — every declaration whose role
     /// is [`DeclarationRole::DataType`], the `types` block of the document layout.
-    pub fn data_declarations(&self) -> impl Iterator<Item = &CoreDeclaration> {
+    pub fn data_declarations(&self) -> impl Iterator<Item = &EncodedDeclaration> {
         self.declarations
             .iter()
             .filter(|declaration| declaration.role() == DeclarationRole::DataType)
@@ -81,17 +81,17 @@ impl CoreSchema {
 
     /// The document's input interface root — the declaration tagged
     /// [`DeclarationRole::InterfaceInput`], if the document carried one.
-    pub fn input(&self) -> Option<&CoreDeclaration> {
+    pub fn input(&self) -> Option<&EncodedDeclaration> {
         self.role_declaration(DeclarationRole::InterfaceInput)
     }
 
     /// The document's output interface root — the declaration tagged
     /// [`DeclarationRole::InterfaceOutput`], if the document carried one.
-    pub fn output(&self) -> Option<&CoreDeclaration> {
+    pub fn output(&self) -> Option<&EncodedDeclaration> {
         self.role_declaration(DeclarationRole::InterfaceOutput)
     }
 
-    fn role_declaration(&self, role: DeclarationRole) -> Option<&CoreDeclaration> {
+    fn role_declaration(&self, role: DeclarationRole) -> Option<&EncodedDeclaration> {
         self.declarations
             .iter()
             .find(|declaration| declaration.role() == role)
@@ -99,7 +99,9 @@ impl CoreSchema {
 
     /// This schema's content identity, blake3 over its stringless rkyv bytes with
     /// the NameTable excluded by construction — a rename cannot move it.
-    pub fn content_identity(&self) -> Result<ContentHash<CoreSchemaDomain>, CoreIdentityError> {
+    pub fn content_identity(
+        &self,
+    ) -> Result<ContentHash<EncodedSchemaDomain>, EncodedIdentityError> {
         Ok(ContentHash::of_core(self)?)
     }
 }
@@ -138,15 +140,15 @@ impl DeclarationRole {
 /// `Declaration`-name invariant of the ground truth: a declaration's name is always
 /// its value's name).
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreDeclaration {
+pub struct EncodedDeclaration {
     visibility: Visibility,
     role: DeclarationRole,
-    value: CoreType,
+    value: EncodedType,
 }
 
-impl CoreDeclaration {
+impl EncodedDeclaration {
     /// An ordinary data-type declaration ([`DeclarationRole::DataType`]).
-    pub fn new(visibility: Visibility, value: CoreType) -> Self {
+    pub fn new(visibility: Visibility, value: EncodedType) -> Self {
         Self {
             visibility,
             role: DeclarationRole::DataType,
@@ -155,13 +157,13 @@ impl CoreDeclaration {
     }
 
     /// A public data-type declaration.
-    pub fn public(value: CoreType) -> Self {
+    pub fn public(value: EncodedType) -> Self {
         Self::new(Visibility::Public, value)
     }
 
     /// A public interface-root declaration carrying its interface role. Interface
     /// roots are always public: they are a component's protocol surface.
-    pub fn interface(role: DeclarationRole, value: CoreType) -> Self {
+    pub fn interface(role: DeclarationRole, value: EncodedType) -> Self {
         Self {
             visibility: Visibility::Public,
             role,
@@ -178,7 +180,7 @@ impl CoreDeclaration {
         self.role
     }
 
-    pub fn value(&self) -> &CoreType {
+    pub fn value(&self) -> &EncodedType {
         &self.value
     }
 
@@ -190,8 +192,8 @@ impl CoreDeclaration {
     /// This declaration re-stamped into a canonical name space — its visibility and
     /// [`DeclarationRole`] preserved, its value's own name replaced with the
     /// already-canonically-interned `own`, and every interior name re-stamped through
-    /// `source` into `canonical` ([`CoreType::restamp`]). The authority-provided
-    /// universe path ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
+    /// `source` into `canonical` ([`EncodedType::restamp`]). The authority-provided
+    /// universe path ([`EncodedUniverse::from_assignment`](crate::universe::EncodedUniverse::from_assignment))
     /// uses it so an ingested declaration keeps its role and visibility while its
     /// stored identifiers become a deterministic function of the canonical order.
     pub fn restamp<Source, Canonical>(
@@ -219,15 +221,15 @@ pub enum Visibility {
     Private,
 }
 
-/// A declared type body, mirroring `schema-language`'s `CoreType`.
+/// A declared type body, mirroring `schema-language`'s `EncodedType`.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub enum CoreType {
-    Newtype(CoreNewtype),
-    Struct(CoreStruct),
-    Enumeration(CoreEnum),
+pub enum EncodedType {
+    Newtype(EncodedNewtype),
+    Struct(EncodedStruct),
+    Enumeration(EncodedEnum),
 }
 
-impl CoreType {
+impl EncodedType {
     /// The declared type's identifier.
     pub fn identifier(&self) -> Identifier {
         match self {
@@ -245,12 +247,12 @@ impl CoreType {
     /// `primary-56d1.36`), so the native document decode converges byte-for-byte onto
     /// the legacy lowering (`schema-language`'s `MacroExpansionStructBody::lower_type`,
     /// which collapses a one-field struct body to a newtype the same way).
-    pub fn from_braced_body(identifier: Identifier, mut fields: Vec<CoreField>) -> Self {
+    pub fn from_braced_body(identifier: Identifier, mut fields: Vec<EncodedField>) -> Self {
         if fields.len() == 1 {
             let field = fields.remove(0);
-            Self::Newtype(CoreNewtype::new(identifier, field.reference().clone()))
+            Self::Newtype(EncodedNewtype::new(identifier, field.reference().clone()))
         } else {
-            Self::Struct(CoreStruct::new(identifier, fields))
+            Self::Struct(EncodedStruct::new(identifier, fields))
         }
     }
 
@@ -268,7 +270,7 @@ impl CoreType {
     /// — field names, variant names, and the target of each `Plain` cross-reference —
     /// resolved through the `source` name space and re-interned into `canonical`.
     /// The authority-provided universe path
-    /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
+    /// ([`EncodedUniverse::from_assignment`](crate::universe::EncodedUniverse::from_assignment))
     /// uses it so the built declaration's every stored identifier is a deterministic
     /// function of the canonical interning order (the authority's assignment plus a
     /// fixed positional walk), never of the order the source parsed. Without the
@@ -285,7 +287,7 @@ impl CoreType {
         Canonical: NameInterner + ?Sized,
     {
         Ok(match self {
-            Self::Newtype(newtype) => Self::Newtype(CoreNewtype::new(
+            Self::Newtype(newtype) => Self::Newtype(EncodedNewtype::new(
                 own,
                 newtype.reference().restamp(source, canonical)?,
             )),
@@ -295,7 +297,7 @@ impl CoreType {
                     .iter()
                     .map(|field| field.restamp(source, canonical))
                     .collect::<Result<_, _>>()?;
-                Self::Struct(CoreStruct::new(own, fields))
+                Self::Struct(EncodedStruct::new(own, fields))
             }
             Self::Enumeration(enumeration) => {
                 let variants = enumeration
@@ -303,7 +305,7 @@ impl CoreType {
                     .iter()
                     .map(|variant| variant.restamp(source, canonical))
                     .collect::<Result<_, _>>()?;
-                Self::Enumeration(CoreEnum::new(own, variants))
+                Self::Enumeration(EncodedEnum::new(own, variants))
             }
         })
     }
@@ -311,13 +313,13 @@ impl CoreType {
 
 /// A newtype declaration: a single wrapped reference.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreNewtype {
+pub struct EncodedNewtype {
     identifier: Identifier,
-    reference: CoreReference,
+    reference: EncodedReference,
 }
 
-impl CoreNewtype {
-    pub fn new(identifier: Identifier, reference: CoreReference) -> Self {
+impl EncodedNewtype {
+    pub fn new(identifier: Identifier, reference: EncodedReference) -> Self {
         Self {
             identifier,
             reference,
@@ -328,20 +330,20 @@ impl CoreNewtype {
         self.identifier
     }
 
-    pub fn reference(&self) -> &CoreReference {
+    pub fn reference(&self) -> &EncodedReference {
         &self.reference
     }
 }
 
 /// A struct declaration: an ordered list of typed fields.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreStruct {
+pub struct EncodedStruct {
     identifier: Identifier,
-    fields: Vec<CoreField>,
+    fields: Vec<EncodedField>,
 }
 
-impl CoreStruct {
-    pub fn new(identifier: Identifier, fields: Vec<CoreField>) -> Self {
+impl EncodedStruct {
+    pub fn new(identifier: Identifier, fields: Vec<EncodedField>) -> Self {
         Self { identifier, fields }
     }
 
@@ -349,7 +351,7 @@ impl CoreStruct {
         self.identifier
     }
 
-    pub fn fields(&self) -> &[CoreField] {
+    pub fn fields(&self) -> &[EncodedField] {
         &self.fields
     }
 }
@@ -358,13 +360,13 @@ impl CoreStruct {
 /// whose name equals the `snake_case` of its reference elides that name in text;
 /// the name is then derived on demand, never stored.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreField {
+pub struct EncodedField {
     identifier: Identifier,
-    reference: CoreReference,
+    reference: EncodedReference,
 }
 
-impl CoreField {
-    pub fn new(identifier: Identifier, reference: CoreReference) -> Self {
+impl EncodedField {
+    pub fn new(identifier: Identifier, reference: EncodedReference) -> Self {
         Self {
             identifier,
             reference,
@@ -375,14 +377,14 @@ impl CoreField {
         self.identifier
     }
 
-    pub fn reference(&self) -> &CoreReference {
+    pub fn reference(&self) -> &EncodedReference {
         &self.reference
     }
 
     /// This field re-stamped into a canonical name space: its own name resolved
     /// through `source` and re-interned into `canonical`, and its reference
     /// re-stamped the same way. Part of the authority-provided canonicalisation
-    /// ([`CoreType::restamp`]).
+    /// ([`EncodedType::restamp`]).
     pub fn restamp<Source, Canonical>(
         &self,
         source: &Source,
@@ -417,13 +419,13 @@ impl CoreField {
 
 /// An enumeration declaration: an ordered list of variants.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreEnum {
+pub struct EncodedEnum {
     identifier: Identifier,
-    variants: Vec<CoreVariant>,
+    variants: Vec<EncodedVariant>,
 }
 
-impl CoreEnum {
-    pub fn new(identifier: Identifier, variants: Vec<CoreVariant>) -> Self {
+impl EncodedEnum {
+    pub fn new(identifier: Identifier, variants: Vec<EncodedVariant>) -> Self {
         Self {
             identifier,
             variants,
@@ -434,20 +436,20 @@ impl CoreEnum {
         self.identifier
     }
 
-    pub fn variants(&self) -> &[CoreVariant] {
+    pub fn variants(&self) -> &[EncodedVariant] {
         &self.variants
     }
 }
 
 /// An enum variant: its identifier and an optional payload reference.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreVariant {
+pub struct EncodedVariant {
     identifier: Identifier,
-    payload: Option<CoreReference>,
+    payload: Option<EncodedReference>,
 }
 
-impl CoreVariant {
-    pub fn new(identifier: Identifier, payload: Option<CoreReference>) -> Self {
+impl EncodedVariant {
+    pub fn new(identifier: Identifier, payload: Option<EncodedReference>) -> Self {
         Self {
             identifier,
             payload,
@@ -458,14 +460,14 @@ impl CoreVariant {
         self.identifier
     }
 
-    pub fn payload(&self) -> Option<&CoreReference> {
+    pub fn payload(&self) -> Option<&EncodedReference> {
         self.payload.as_ref()
     }
 
     /// This variant re-stamped into a canonical name space: its own name resolved
     /// through `source` and re-interned into `canonical`, and its optional payload
     /// reference re-stamped the same way. Part of the authority-provided
-    /// canonicalisation ([`CoreType::restamp`]).
+    /// canonicalisation ([`EncodedType::restamp`]).
     pub fn restamp<Source, Canonical>(
         &self,
         source: &Source,
