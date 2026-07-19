@@ -5,9 +5,10 @@
 //! validated against the Core layout ([`CoreUniverse::validate_table`]).
 //!
 //! The family: `CommitSequence`/`StateDigest` newtypes over `Integer`, a
-//! `DatabaseMarker` struct `{ CommitSequence StateDigest secretDigest.StateDigest }`,
-//! the `Documentation → Summary → Text` string-rejoin chain, the `Field` meta-type
-//! with its two disjoint constructors, and the `Integer`/`Float`/`Text` leaf
+//! `DatabaseMarker` struct `{ CommitSequence StateDigest StateDigest }` — its two
+//! same-typed `StateDigest` fields told apart by position alone — the
+//! `Documentation → Summary → Text` string-rejoin chain, the `Field` meta-type with
+//! its single positional constructor, and the `Integer`/`Float`/`Text` leaf
 //! primitives.
 //!
 //! [`CoreUniverse::validate_table`]: crate::universe::CoreUniverse::validate_table
@@ -75,10 +76,12 @@ impl FixtureFamily {
         let documentation_name = builder.intern("Documentation");
         let database_marker = builder.intern("DatabaseMarker");
 
-        // Struct field names: two elide (name == snake_case of type), one is explicit.
+        // Struct field names are ALWAYS the type-derived snake_case name — field names
+        // are illegal in text (psyche ruling 2026-07-19), so a field's name is a pure
+        // function of its type. The two `StateDigest` fields therefore derive the SAME
+        // name `state_digest`; position, not the name, tells them apart.
         let commit_field = builder.intern("commit_sequence");
         let state_field = builder.intern("state_digest");
-        let secret_field = builder.intern("secretDigest");
 
         let commit_declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
             commit_sequence,
@@ -100,7 +103,7 @@ impl FixtureFamily {
             vec![
                 CoreField::new(commit_field, CoreReference::Plain(commit_sequence)),
                 CoreField::new(state_field, CoreReference::Plain(state_digest)),
-                CoreField::new(secret_field, CoreReference::Plain(state_digest)),
+                CoreField::new(state_field, CoreReference::Plain(state_digest)),
             ],
         )));
 
@@ -298,31 +301,22 @@ impl FixtureFamily {
         )
     }
 
-    /// The `Field` meta-type with its two structurally-disjoint constructors: a bare
-    /// `Type` (name elided, derived) versus `name.Type`. Both signatures are empty —
-    /// a field's payload is name identifiers, not typed sub-structures.
+    /// The `Field` meta-type: ONE positional constructor, the bare type reference.
+    /// Field names are illegal in every Protos surface (psyche ruling 2026-07-19:
+    /// "field names are now COMPLETLY ILLEGAL EVERYWHERE"), so a field carries nothing
+    /// but the type standing at its position — an explicit `name.Type` no longer
+    /// parses. The signature is empty: a field's payload is a name atom, not a typed
+    /// sub-structure.
     fn field_entry() -> StructuralEntry {
         let type_only = StructuralForm::pascal_atom();
-        let named = StructuralForm::application(
-            StructuralForm::camel_atom(),
-            StructuralForm::pascal_atom(),
-        );
         StructuralEntry::new(
             FIELD,
-            vec![
-                ConstructorCodec::new(
-                    CoreConstructorId::new(FIELD, 0),
-                    vec![type_only.clone()],
-                    type_only,
-                    PositionalSignature::default(),
-                ),
-                ConstructorCodec::new(
-                    CoreConstructorId::new(FIELD, 1),
-                    vec![named.clone()],
-                    named,
-                    PositionalSignature::default(),
-                ),
-            ],
+            vec![ConstructorCodec::new(
+                CoreConstructorId::new(FIELD, 0),
+                vec![type_only.clone()],
+                type_only,
+                PositionalSignature::default(),
+            )],
         )
     }
 }

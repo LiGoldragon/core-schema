@@ -35,9 +35,10 @@ pub enum MemberKind {
     /// A scalar leaf primitive (`Integer`, `Text`, `Boolean`, `Bytes`). One
     /// terminal constructor whose field signature is empty.
     Primitive,
-    /// The `Field` meta-type: two structurally-disjoint constructors (a bare
-    /// elided-name `Type` and an explicit `name.Type`). A field's payload is name
-    /// identifiers, not typed sub-structures, so both signatures are empty.
+    /// The `Field` meta-type: ONE positional constructor, the bare type reference.
+    /// Field names are illegal in every Protos surface (psyche ruling 2026-07-19:
+    /// "field names are now COMPLETLY ILLEGAL EVERYWHERE"), so a field is nothing
+    /// but the type standing at its position; its signature is empty.
     FieldMeta,
     /// A user declaration; its constructor signatures are derived from its layout.
     Declaration(CoreDeclaration),
@@ -47,7 +48,7 @@ impl MemberKind {
     fn constructor_count(&self) -> usize {
         match self {
             Self::Primitive => 1,
-            Self::FieldMeta => 2,
+            Self::FieldMeta => 1,
             Self::Declaration(declaration) => declaration.value().constructor_count(),
         }
     }

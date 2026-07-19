@@ -8,11 +8,13 @@
 //! canonical text. The parser never classifies: the expected Core type drives the
 //! evaluator, and reification reads only the mirror.
 //!
-//! The `Field` disjoint alternatives — an elided name derived from the type versus
-//! an explicit `name.Type` — are handled here against the real Core layout: on
-//! encode a field elides its name exactly when it equals the `snake_case` of its
-//! referenced type (name-table's derived-name rule); on decode the elided name is
-//! re-derived, never stored.
+//! A struct field is nothing but the type standing at its position. Field names are
+//! illegal in every Protos surface (psyche ruling 2026-07-19: "field names are now
+//! COMPLETLY ILLEGAL EVERYWHERE"), so on encode a field ALWAYS elides — its name is
+//! never written — and on decode the name is re-derived from the type, never read
+//! from the text. Two fields of the same type derive the same name; position, not the
+//! name, tells them apart. An explicit `name.Type` in the text no longer parses as a
+//! field and is rejected at decode.
 
 use name_table::{Name, NameTable};
 use raw_discovery::{Block, Delimiter, Recognizer};
@@ -167,9 +169,7 @@ impl TextualSchema {
         for field_value in &body {
             fields.push(self.reify_field(field_value, names)?);
         }
-        let structure = CoreType::Struct(CoreStruct::new(name, fields));
-        structure.enforce_elision_law(names)?;
-        Ok(structure)
+        Ok(CoreType::Struct(CoreStruct::new(name, fields)))
     }
 
     /// A declaration value is `Chosen{0, Application(Atom(name), Delimited(body))}`.
@@ -200,35 +200,20 @@ impl TextualSchema {
         let StructuralValue::Delegated(inner) = field_value else {
             return Err(TextualError::ReifyShape("struct field delegate"));
         };
-        let StructuralValue::Chosen {
-            constructor,
-            payload,
-        } = inner.as_ref()
-        else {
+        let StructuralValue::Chosen { payload, .. } = inner.as_ref() else {
             return Err(TextualError::ReifyShape("struct field constructor"));
         };
-        match (constructor, payload.as_ref()) {
-            // Elided name: the payload is the type atom; the name is derived and
-            // interned on demand — never stored in the Core.
-            (0, StructuralValue::Atom(type_id)) => {
-                let reference = self.reference_from_atom(*type_id, names)?;
-                let derived = reference.derived_field_name(names)?;
-                let identifier = names.intern(name_table::Name::new(derived));
-                Ok(CoreField::new(identifier, reference))
-            }
-            // Explicit name: `Application(Atom(name), Atom(type))`.
-            (1, StructuralValue::Application(name, type_atom)) => {
-                let StructuralValue::Atom(name_id) = name.as_ref() else {
-                    return Err(TextualError::ReifyShape("named field name"));
-                };
-                let StructuralValue::Atom(type_id) = type_atom.as_ref() else {
-                    return Err(TextualError::ReifyShape("named field type"));
-                };
-                let reference = self.reference_from_atom(*type_id, names)?;
-                Ok(CoreField::new(*name_id, reference))
-            }
-            _ => Err(TextualError::ReifyShape("struct field alternative")),
-        }
+        // A field is nothing but the type standing at its position. The payload is the
+        // type atom; the field's name is DERIVED from that type and interned on demand,
+        // never read from the text (field names are illegal). Two same-typed fields
+        // derive the same name — position, not the name, distinguishes them.
+        let StructuralValue::Atom(type_id) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("struct field type"));
+        };
+        let reference = self.reference_from_atom(*type_id, names)?;
+        let derived = reference.derived_field_name(names)?;
+        let identifier = names.intern(name_table::Name::new(derived));
+        Ok(CoreField::new(identifier, reference))
     }
 
     fn reference_from_atom(
@@ -278,10 +263,9 @@ impl TextualSchema {
         structure: &CoreStruct,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
-        let shared = structure.field_types_share_names(names)?;
         let mut field_values = Vec::with_capacity(structure.fields().len());
-        for (field, type_is_shared) in structure.fields().iter().zip(shared) {
-            field_values.push(self.reflect_field(field, type_is_shared, names)?);
+        for field in structure.fields() {
+            field_values.push(self.reflect_field(field, names)?);
         }
         Ok(StructuralValue::chosen(
             0,
@@ -295,31 +279,17 @@ impl TextualSchema {
     fn reflect_field(
         &self,
         field: &CoreField,
-        type_is_shared: bool,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
         let type_id = field
             .reference()
             .type_atom_identifier(names)
             .ok_or(TextualError::ReifyShape("field type reference"))?;
-        // The elision law: emit an explicit name ONLY where the type is shared by
-        // another field (eliding would collide) AND the stored name is not the one the
-        // type derives. A uniquely typed field always elides, so a superfluous name is
-        // never emitted (psyche ruling, bead primary-56d1.48). Under a shared type the
-        // canonical form matches the `DatabaseMarker` precedent: the field whose name
-        // equals the derived name stays elided, the disambiguating field is explicit.
-        let chosen = if type_is_shared && !field.name_is_derivable(names)? {
-            StructuralValue::chosen(
-                1,
-                StructuralValue::Application(
-                    Box::new(StructuralValue::Atom(field.identifier())),
-                    Box::new(StructuralValue::Atom(type_id)),
-                ),
-            )
-        } else {
-            // Uniquely typed, or the name equals the type's snake_case — elide it.
-            StructuralValue::chosen(0, StructuralValue::Atom(type_id))
-        };
+        // A field is nothing but the type standing at its position. Its name is NEVER
+        // written (field names are illegal in every Protos surface, psyche ruling
+        // 2026-07-19), so every field elides to its bare type atom — even two fields of
+        // the same type, told apart by position alone.
+        let chosen = StructuralValue::chosen(0, StructuralValue::Atom(type_id));
         Ok(StructuralValue::Delegated(Box::new(chosen)))
     }
 
@@ -714,9 +684,7 @@ impl TextualSchema {
                 }
                 // A single-field braced body lowers to a newtype canonically, matching
                 // the legacy front end (psyche ruling, bead primary-56d1.36).
-                let lowered = CoreType::from_braced_body(*name, core_fields);
-                lowered.enforce_elision_law(names)?;
-                lowered
+                CoreType::from_braced_body(*name, core_fields)
             }
             DeclarationConstructor::Enumeration => {
                 let StructuralValue::Delimited(variants) = body.as_ref() else {
@@ -744,10 +712,9 @@ impl TextualSchema {
                 )
             }
             CoreType::Struct(structure) => {
-                let shared = structure.field_types_share_names(names)?;
                 let mut fields = Vec::with_capacity(structure.fields().len());
-                for (field, type_is_shared) in structure.fields().iter().zip(shared) {
-                    fields.push(self.reflect_field(field, type_is_shared, names)?);
+                for field in structure.fields() {
+                    fields.push(self.reflect_field(field, names)?);
                 }
                 (
                     DeclarationConstructor::Struct,
@@ -838,7 +805,7 @@ impl TextualSchema {
     }
 }
 
-/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`] operation:
+/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`](structural_codec::TextualForm) operation:
 /// the two organs are its authored structural table (the structuretree) and the
 /// caller's `NameTable` (the nametree), and its EncodedForm is a `CoreType`
 /// declaration. The provided `view` / `unview` reproduce this crate's own

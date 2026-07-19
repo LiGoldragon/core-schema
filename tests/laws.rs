@@ -41,8 +41,9 @@ fn law_one_round_trip_core() {
     let evaluator = StructuralEvaluator::new(&table);
     let cases: &[(ScopedCoreTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
+        // A field is a bare positional type reference; field names are illegal, so the
+        // only field spelling is the type itself.
         (FIELD, "Integer"),
-        (FIELD, "commitSequence.Integer"),
         (DOCUMENTATION, "alpha.beta.gamma"),
         (FLOAT, "-122.3"),
     ];
@@ -70,7 +71,8 @@ fn law_two_round_trip_canonical() {
     let evaluator = StructuralEvaluator::new(&table);
     let cases: &[(ScopedCoreTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
-        (FIELD, "commitSequence.Integer"),
+        // A field is a bare positional type reference; field names are illegal.
+        (FIELD, "Integer"),
         (DOCUMENTATION, "alpha.beta.gamma"),
         (FLOAT, "-122.3"),
     ];

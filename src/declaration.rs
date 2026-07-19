@@ -8,7 +8,7 @@
 use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
 use name_table::{Identifier, NameInterner, NameResolver, NameTableError};
 
-use crate::error::{CoreIdentityError, ElisionLawError};
+use crate::error::CoreIdentityError;
 use crate::reference::CoreReference;
 
 /// The hash domain for stringless CoreSchema values, layout-version tagged. A
@@ -254,21 +254,6 @@ impl CoreType {
         }
     }
 
-    /// Check this type against the elision law: only a [`Struct`](Self::Struct) block
-    /// can break it (a newtype and an enumeration carry no elidable field names), so
-    /// this delegates to [`CoreStruct::enforce_elision_law`] and is a no-op otherwise.
-    /// The textual decoder runs this at the crate boundary so a superfluous explicit
-    /// name never enters a decoded Core.
-    pub fn enforce_elision_law<Resolver: NameResolver + ?Sized>(
-        &self,
-        names: &Resolver,
-    ) -> Result<(), ElisionLawError> {
-        match self {
-            Self::Struct(structure) => structure.enforce_elision_law(names),
-            Self::Newtype(_) | Self::Enumeration(_) => Ok(()),
-        }
-    }
-
     /// How many Core constructors this type has: a product (newtype, struct) has
     /// one; a sum (enumeration) has one per variant.
     pub fn constructor_count(&self) -> usize {
@@ -367,61 +352,6 @@ impl CoreStruct {
     pub fn fields(&self) -> &[CoreField] {
         &self.fields
     }
-
-    /// For each field, in order, whether the field name its *type* derives is shared
-    /// by another field in the block — the condition under which eliding every name
-    /// would collide, so an explicit (non-derivable) name is legal. This is the
-    /// block-level companion to [`CoreField::name_is_derivable`]: the per-field derive
-    /// test decides whether a single name equals its derived form, and this decides
-    /// whether the block leaves room to elide it. The textual codec ([`crate::textual`])
-    /// reads both on each leg so decode rejection and encode elision never drift.
-    ///
-    /// Two fields "share a type" here precisely when their types derive the same field
-    /// name — the operative condition for elision, since a derived name is a pure
-    /// function of the type. Distinct types whose `snake_case` collides are treated as
-    /// sharing, which is correct: elision would still collide.
-    pub fn field_types_share_names<Resolver: NameResolver + ?Sized>(
-        &self,
-        names: &Resolver,
-    ) -> Result<Vec<bool>, NameTableError> {
-        let derived = self
-            .fields
-            .iter()
-            .map(|field| field.reference().derived_field_name(names))
-            .collect::<Result<Vec<String>, _>>()?;
-        Ok(derived
-            .iter()
-            .enumerate()
-            .map(|(index, name)| {
-                derived
-                    .iter()
-                    .enumerate()
-                    .any(|(other, candidate)| other != index && candidate == name)
-            })
-            .collect())
-    }
-
-    /// Enforce the elision law over this block, returning the first field that breaks
-    /// it. An explicit field name — a stored name that is not the one its type derives
-    /// ([`CoreField::name_is_derivable`] is false) — is legal ONLY where the type is
-    /// shared by another field ([`Self::field_types_share_names`]), so that eliding
-    /// every name would collide. On a uniquely typed field the name must be elided; an
-    /// explicit name there is invalid syntax (psyche ruling, bead `primary-56d1.48`).
-    pub fn enforce_elision_law<Resolver: NameResolver + ?Sized>(
-        &self,
-        names: &Resolver,
-    ) -> Result<(), ElisionLawError> {
-        let shared = self.field_types_share_names(names)?;
-        for (field, is_shared) in self.fields.iter().zip(shared) {
-            if !is_shared && !field.name_is_derivable(names)? {
-                return Err(ElisionLawError::SuperfluousName {
-                    field_name: names.resolve(field.identifier())?.as_str().to_owned(),
-                    type_name: field.reference().type_name(names)?.as_str().to_owned(),
-                });
-            }
-        }
-        Ok(())
-    }
 }
 
 /// A struct field: its own identifier (name) and the type it references. A field
@@ -470,12 +400,12 @@ impl CoreField {
         ))
     }
 
-    /// Whether this field's stored name is exactly the one its reference derives —
-    /// the single predicate that decides text-name elision. When true, the name may
-    /// be elided in text (and re-derived on decode) or re-derived on Nomos lowering;
-    /// when false the name is explicit and must be carried verbatim. This is the one
-    /// home for the derive-versus-preserve decision shared by the textual codec
-    /// ([`crate::textual`]) and Nomos field lowering, so the two never drift.
+    /// Whether this field's stored name is exactly the one its reference derives.
+    /// Field names are illegal in every Protos surface, so the textual codec never
+    /// consults this — a decoded field always carries its type-derived name. It
+    /// remains the home for Nomos field lowering's derive-versus-preserve decision:
+    /// when true the name is re-derived from the type, when false a programmatically
+    /// constructed Core carries it verbatim.
     pub fn name_is_derivable<Resolver: NameResolver + ?Sized>(
         &self,
         names: &Resolver,

@@ -35,7 +35,8 @@ use crate::universe::CORE_UNIVERSE;
 
 /// The `TypeReference` grammar type: a reference met at a use site.
 pub const TYPE_REFERENCE: ScopedCoreTypeId = ScopedCoreTypeId::fixture(100);
-/// The `Field` meta-type: an elided `Type` or an explicit `name.Type` struct field.
+/// The `Field` meta-type: a bare positional `Type` struct field — field names are
+/// illegal, so there is no `name.Type` form.
 pub const FIELD: ScopedCoreTypeId = ScopedCoreTypeId::fixture(101);
 /// The `Declaration` grammar type: a newtype, struct, or enumeration declaration.
 pub const DECLARATION: ScopedCoreTypeId = ScopedCoreTypeId::fixture(102);
@@ -289,31 +290,22 @@ impl DocumentTableAuthor {
         StructuralEntry::new(TYPE_REFERENCE, constructors)
     }
 
-    /// The `Field` meta-type: a bare `Type` (name elided, derived) or an explicit
-    /// `name.Type`. Field types are plain name atoms here — sufficient for the
-    /// spirit-min structs, whose fields are all plain declared types.
+    /// The `Field` meta-type: a bare positional `Type`, and nothing else. Field names
+    /// are illegal in every Protos surface (psyche ruling 2026-07-19: "field names are
+    /// now COMPLETLY ILLEGAL EVERYWHERE"), so an explicit `name.Type` no longer parses
+    /// — a struct field is only the type standing at its position. Field types are
+    /// plain name atoms here, sufficient for the spirit-min structs whose fields are
+    /// all plain declared types.
     fn field_entry() -> StructuralEntry {
         let type_only = StructuralForm::pascal_atom();
-        let named = StructuralForm::application(
-            StructuralForm::camel_atom(),
-            StructuralForm::pascal_atom(),
-        );
         StructuralEntry::new(
             FIELD,
-            vec![
-                ConstructorCodec::new(
-                    CoreConstructorId::new(FIELD, 0),
-                    vec![type_only.clone()],
-                    type_only,
-                    PositionalSignature::default(),
-                ),
-                ConstructorCodec::new(
-                    CoreConstructorId::new(FIELD, 1),
-                    vec![named.clone()],
-                    named,
-                    PositionalSignature::default(),
-                ),
-            ],
+            vec![ConstructorCodec::new(
+                CoreConstructorId::new(FIELD, 0),
+                vec![type_only.clone()],
+                type_only,
+                PositionalSignature::default(),
+            )],
         )
     }
 

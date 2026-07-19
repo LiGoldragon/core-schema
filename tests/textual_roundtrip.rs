@@ -1,9 +1,8 @@
 //! TextualSchema, the first real Textual form: real schema TEXT decodes into real
 //! CoreSchema values with a real NameTable, and encodes back canonically. The
-//! `Field` disjoint alternatives (elided derived name versus explicit `name.Type`)
-//! work against the real Core layout.
+//! A struct field is a bare positional type reference — field names are illegal, so
+//! same-typed fields are told apart by position alone against the real Core layout.
 
-use core_schema::ElisionLawError;
 use core_schema::TextualError;
 use core_schema::TextualSchema;
 use core_schema::declaration::CoreType;
@@ -68,14 +67,15 @@ fn newtype_declaration_round_trips() {
     println!("re-encoded => {re_encoded}");
 }
 
-/// The `DatabaseMarker` struct decodes into a real `CoreStruct` whose fields exercise
-/// BOTH `Field` alternatives against the real Core layout: two names are elided
-/// (derived from the type) and one is explicit (`secretDigest.StateDigest`). It
-/// encodes back to the identical canonical text.
+/// The `DatabaseMarker` struct decodes into a real `CoreStruct` PURELY POSITIONALLY:
+/// every field is a bare type reference and its name is DERIVED from that type, never
+/// read from the text (field names are illegal, psyche ruling 2026-07-19). Its two
+/// same-typed `StateDigest` fields therefore derive the SAME name `state_digest` and
+/// are told apart by position alone. It encodes back to the identical canonical text.
 #[test]
-fn struct_declaration_round_trips_with_both_field_alternatives() {
+fn struct_declaration_round_trips_positionally() {
     let textual = TextualSchema::fixture().expect("build textual schema");
-    let source = "DatabaseMarker.{ CommitSequence StateDigest secretDigest.StateDigest }";
+    let source = "DatabaseMarker.{ CommitSequence StateDigest StateDigest }";
     let mut names = NameTable::new();
 
     let value = textual
@@ -96,10 +96,11 @@ fn struct_declaration_round_trips_with_both_field_alternatives() {
         .iter()
         .map(|field| names.resolve(field.identifier()).unwrap().as_str())
         .collect();
-    // Two elided (derived) names, one explicit.
+    // Every name is derived from its type; the two `StateDigest` fields collide on
+    // `state_digest` — position, not the name, distinguishes them.
     assert_eq!(
         field_names,
-        vec!["commit_sequence", "state_digest", "secretDigest"]
+        vec!["commit_sequence", "state_digest", "state_digest"]
     );
 
     // Every field references a declared type by identifier (Plain), never a string.
@@ -119,33 +120,25 @@ fn struct_declaration_round_trips_with_both_field_alternatives() {
     println!("re-encoded => {re_encoded}");
 }
 
-/// The elision law: an explicit field name is legal ONLY where two or more fields
-/// in the block share a type. Naming a uniquely-typed field explicitly — here
-/// `foo.CommitSequence`, the block's only `CommitSequence` — is invalid syntax, so
-/// decode must reject it with a typed [`ElisionLawError::SuperfluousName`] that
-/// names the uniquely-typed type. The two shared `StateDigest` fields keep the
-/// explicit name on `secretDigest` legal; only the uniquely-typed offender fails.
-/// (psyche ruling, bead `primary-56d1.48`.)
+/// Field names are illegal in every Protos surface (psyche ruling 2026-07-19: "field
+/// names are now COMPLETLY ILLEGAL EVERYWHERE"). An explicit `name.Type` at a field
+/// position — here `secretDigest.StateDigest` — no longer parses as a field: a field
+/// is only the bare type standing at its position, so an application where a type atom
+/// is expected has no valid alternative and decode rejects it. This holds for a name on
+/// a same-typed field (the former "collision" case) exactly as for any other; there is
+/// no longer any place a field name is legal.
 #[test]
-fn decode_rejects_explicit_name_on_uniquely_typed_field() {
+fn decode_rejects_explicit_field_name() {
     let textual = TextualSchema::fixture().expect("build textual schema");
-    let source = "DatabaseMarker.{ foo.CommitSequence StateDigest secretDigest.StateDigest }";
+    let source = "DatabaseMarker.{ CommitSequence StateDigest secretDigest.StateDigest }";
     let mut names = NameTable::new();
 
     let error = textual
         .decode(DATABASE_MARKER, source, &mut names)
-        .expect_err(
-            "an explicit name on the uniquely-typed CommitSequence field is invalid syntax",
-        );
+        .expect_err("an explicit field name is illegal Protos and must be rejected");
 
-    match error {
-        TextualError::Elision(ElisionLawError::SuperfluousName {
-            field_name,
-            type_name,
-        }) => {
-            assert_eq!(field_name, "foo");
-            assert_eq!(type_name, "CommitSequence");
-        }
-        other => panic!("expected an elision-law rejection, got {other:?}"),
-    }
+    assert!(
+        matches!(error, TextualError::Decode(_)),
+        "expected a structural decode rejection of the field-name application, got {error:?}"
+    );
 }

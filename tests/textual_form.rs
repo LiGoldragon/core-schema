@@ -18,7 +18,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
         (
             DATABASE_MARKER,
-            "DatabaseMarker.{ CommitSequence StateDigest secretDigest.StateDigest }",
+            "DatabaseMarker.{ CommitSequence StateDigest StateDigest }",
         ),
     ];
 
