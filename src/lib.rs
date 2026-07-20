@@ -40,6 +40,8 @@ pub mod error;
 pub mod fixture;
 pub mod manifest;
 pub mod reference;
+/// Experimental source-surface candidates, isolated to this proposal branch.
+pub mod source_surface_proposal;
 pub mod textual;
 pub mod universe;
 
