@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use name_table::{Name, NameTable};
+use name_table::{IdentifierNamespace, Name, NameTable};
 use raw_discovery::Delimiter;
 use structural_codec::ids::{
     EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId, StructuralRevision,
@@ -224,7 +224,7 @@ struct DocumentTableAuthor {
 impl DocumentTableAuthor {
     fn new() -> Self {
         Self {
-            lexicon: NameTable::new(),
+            lexicon: NameTable::new(IdentifierNamespace::Schema),
         }
     }
 

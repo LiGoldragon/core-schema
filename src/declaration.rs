@@ -20,13 +20,12 @@ impl HashDomain for EncodedSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
-            // Layout 3: interface-root-ness is now carried by [`DeclarationRole`] on
-            // each [`EncodedDeclaration`] — the two protocol lines are ordinary
-            // declarations tagged `InterfaceInput` / `InterfaceOutput`, no longer a
-            // separate pair of interface slots (layout 2). A layout-2 value (slots)
-            // and a layout-3 value (role-tagged declarations) hash under different
-            // layout versions, as the storage-schema change demands.
-            layout: LayoutVersion::new(3),
+            // Layout 5 adds a closed `StreamingRelation` family to the encoded
+            // schema. Layout 4 adopted namespace-variant `u16` identifiers. Both are
+            // deliberate producer-to-consumer archive breaks: old schema packages
+            // are regenerated with their accompanying NameTable rather than decoded
+            // as sliced identifiers. Layout 3 introduced interface roles.
+            layout: LayoutVersion::new(5),
         }
     }
 }
@@ -58,17 +57,93 @@ impl HashDomain for EncodedSchemaDomain {
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
 pub struct EncodedSchema {
     declarations: Vec<EncodedDeclaration>,
+    streaming_relations: Vec<StreamingRelation>,
+}
+
+/// One reusable subscription protocol relation, entirely in encoded data.
+///
+/// The relation links an input opener and output acknowledgement by their ordered
+/// interface-variant identifiers, then names the encoded references for its token,
+/// event, and close-token values. A downstream signal projection generates the
+/// streaming-frame topology from this relation; no component-specific path or
+/// source spelling is implied by this data model.
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
+pub struct StreamingRelation {
+    opening_input_variant: Identifier,
+    acknowledgement_output_variant: Identifier,
+    token: EncodedReference,
+    event: EncodedReference,
+    close_token: EncodedReference,
+}
+
+impl StreamingRelation {
+    /// Construct one closed subscription protocol relation.
+    pub fn new(
+        opening_input_variant: Identifier,
+        acknowledgement_output_variant: Identifier,
+        token: EncodedReference,
+        event: EncodedReference,
+        close_token: EncodedReference,
+    ) -> Self {
+        Self {
+            opening_input_variant,
+            acknowledgement_output_variant,
+            token,
+            event,
+            close_token,
+        }
+    }
+
+    /// The input interface variant that opens the subscription.
+    pub fn opening_input_variant(&self) -> Identifier {
+        self.opening_input_variant
+    }
+
+    /// The output interface variant that acknowledges opening.
+    pub fn acknowledgement_output_variant(&self) -> Identifier {
+        self.acknowledgement_output_variant
+    }
+
+    /// The typed subscription token carried by the relation.
+    pub fn token(&self) -> &EncodedReference {
+        &self.token
+    }
+
+    /// The typed event carried after subscription activation.
+    pub fn event(&self) -> &EncodedReference {
+        &self.event
+    }
+
+    /// The typed token accepted by the relation's close operation.
+    pub fn close_token(&self) -> &EncodedReference {
+        &self.close_token
+    }
 }
 
 impl EncodedSchema {
-    /// A schema over the given declaration substrate. Interface roots, when present,
-    /// are the declarations carrying an interface [`DeclarationRole`].
+    /// A schema over declarations without streaming relations.
     pub fn new(declarations: Vec<EncodedDeclaration>) -> Self {
-        Self { declarations }
+        Self::with_streaming_relations(declarations, Vec::new())
+    }
+
+    /// A schema over declarations and closed streaming protocol relations.
+    pub fn with_streaming_relations(
+        declarations: Vec<EncodedDeclaration>,
+        streaming_relations: Vec<StreamingRelation>,
+    ) -> Self {
+        Self {
+            declarations,
+            streaming_relations,
+        }
     }
 
     pub fn declarations(&self) -> &[EncodedDeclaration] {
         &self.declarations
+    }
+
+    /// The reusable streaming protocol relations this schema declares, in order.
+    pub fn streaming_relations(&self) -> &[StreamingRelation] {
+        &self.streaming_relations
     }
 
     /// The declarations that are ordinary data types — every declaration whose role

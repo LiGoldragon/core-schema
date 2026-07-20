@@ -11,9 +11,9 @@ use name_table::{Name, NameTable};
 /// append-only. Interning order is preserved, so every other identifier keeps its
 /// index.
 fn rename(original: &NameTable, target: name_table::Identifier, replacement: &str) -> NameTable {
-    let mut renamed = NameTable::new();
+    let mut renamed = NameTable::new(name_table::IdentifierNamespace::Schema);
     for index in 0..original.len() {
-        let identifier = name_table::Identifier::new(index as u32);
+        let identifier = name_table::Identifier::Schema(index as u16);
         let name = if identifier == target {
             Name::new(replacement)
         } else {
@@ -70,7 +70,7 @@ fn a_structural_edit_moves_core_identity() {
     let larger = EncodedSchema::new(vec![
         commit,
         EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
-            name_table::Identifier::new(999),
+            name_table::Identifier::Schema(999),
             EncodedReference::Boolean,
         ))),
     ]);

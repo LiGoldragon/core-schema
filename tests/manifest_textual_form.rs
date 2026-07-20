@@ -43,7 +43,7 @@ fn manifest_resolves_dependencies_and_round_trips_the_same_file_index() {
         },
     ]);
     let textual = TextualSchema::schema_document().expect("document grammar");
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let decoded = textual
         .decode_manifest(&manifest, &source, &mut names)
         .expect("decode dependency-first manifest");
@@ -86,7 +86,7 @@ fn manifest_resolves_dependencies_and_round_trips_the_same_file_index() {
         "the dependency file emits through the shared canonical structuretree"
     );
 
-    let mut names_again = NameTable::new();
+    let mut names_again = NameTable::new(name_table::IdentifierNamespace::Schema);
     let decoded_again = textual
         .decode_manifest(&manifest, &reemitted, &mut names_again)
         .expect("re-decode emitted manifest");
@@ -116,7 +116,7 @@ fn manifest_rejects_cycles_and_undeclared_textual_files() {
             text: TYPES.to_owned(),
         },
     ]);
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let error = TextualSchema::schema_document()
         .expect("document grammar")
         .decode_manifest(&manifest, &view, &mut names)
@@ -141,7 +141,7 @@ fn manifest_structure_cannot_drop_encoded_declarations() {
         text: TYPES.to_owned(),
     }]);
     let textual = TextualSchema::schema_document().expect("document grammar");
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let decoded = textual
         .decode_manifest(&manifest, &source, &mut names)
         .expect("decode one file");
