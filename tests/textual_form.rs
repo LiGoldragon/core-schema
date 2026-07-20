@@ -26,7 +26,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
         let textual = TextualSchema::fixture().expect("build textual schema");
 
         // The inherent single-declaration path (schema's own decode/encode).
-        let mut inherent_names = NameTable::new();
+        let mut inherent_names = NameTable::new(name_table::IdentifierNamespace::Schema);
         let decoded: EncodedType = textual
             .decode(expected, source, &mut inherent_names)
             .expect("inherent decode");
@@ -36,7 +36,7 @@ fn view_and_unview_reproduce_encode_and_decode() {
 
         // The shared give-a-mouth operation over the same two organs. Text crosses
         // only inside the mouth's `TextualForm<SchemaLanguage>` value currency.
-        let mut mouth_names = NameTable::new();
+        let mut mouth_names = NameTable::new(name_table::IdentifierNamespace::Schema);
         let source_view: TextualForm<SchemaLanguage> = TextualForm::single(source.to_string());
         let unviewed: EncodedType = textual
             .unview(expected, &source_view, &mut mouth_names)

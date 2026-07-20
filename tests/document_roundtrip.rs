@@ -64,7 +64,7 @@ fn declaration<'schema>(
 #[test]
 fn spirit_min_document_decodes_to_the_full_core_schema() {
     let textual = TextualSchema::schema_document().expect("build the document grammar");
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let schema = textual
         .decode_document(SPIRIT_MIN, &mut names)
         .expect("decode the whole document");
@@ -234,7 +234,7 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
 fn spirit_min_document_round_trips_to_stable_text() {
     let textual = TextualSchema::schema_document().expect("build the document grammar");
 
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let schema = textual
         .decode_document(SPIRIT_MIN, &mut names)
         .expect("decode the whole document");
@@ -243,7 +243,7 @@ fn spirit_min_document_round_trips_to_stable_text() {
         .encode_document(&schema, &mut names)
         .expect("encode the whole document");
 
-    let mut names_again = NameTable::new();
+    let mut names_again = NameTable::new(name_table::IdentifierNamespace::Schema);
     let redecoded = textual
         .decode_document(&encoded, &mut names_again)
         .expect("re-decode the encoded document");
@@ -291,7 +291,7 @@ const RULING_MIN: &str = "\
 #[test]
 fn string_scalar_and_single_field_brace_follow_the_rulings() {
     let textual = TextualSchema::schema_document().expect("build the document grammar");
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     let schema = textual
         .decode_document(RULING_MIN, &mut names)
         .expect("decode the ruling document");

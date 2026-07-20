@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, Name, NameResolver, NameTable};
+use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable};
 use structural_codec::ids::{
     EncodedUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedEncodedTypeId,
 };
@@ -377,11 +377,21 @@ impl AssignedMember {
 
 /// Builds a [`EncodedUniverse`], owning the shared [`NameTable`] so declarations are
 /// constructed against the same identifier space the universe resolves through.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct EncodedUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
     scalars: HashMap<ScalarSlot, ScopedEncodedTypeId>,
+}
+
+impl Default for EncodedUniverseBuilder {
+    fn default() -> Self {
+        Self {
+            names: NameTable::new(IdentifierNamespace::Schema),
+            members: Vec::new(),
+            scalars: HashMap::new(),
+        }
+    }
 }
 
 /// Which scalar leaf a primitive registration fills. Naming the slot as data keeps

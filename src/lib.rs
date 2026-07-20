@@ -45,7 +45,7 @@ pub mod universe;
 
 pub use declaration::{
     DeclarationRole, EncodedDeclaration, EncodedEnum, EncodedField, EncodedNewtype, EncodedSchema,
-    EncodedSchemaDomain, EncodedStruct, EncodedType, EncodedVariant, Visibility,
+    EncodedSchemaDomain, EncodedStruct, EncodedType, EncodedVariant, StreamingRelation, Visibility,
 };
 pub use document::{
     DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,

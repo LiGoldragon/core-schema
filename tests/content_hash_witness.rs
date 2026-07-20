@@ -24,40 +24,41 @@ use name_table::Identifier;
 
 /// The content identity of a representative single-declaration schema — a public
 /// `Newtype` over `Boolean` at a fixed identifier index — under the current
-/// EncodedSchema layout, as a lowercase hex blake3 digest. Pinned at layout 3, the
-/// version that tags interface-root-ness by `DeclarationRole` on each declaration.
+/// EncodedSchema layout, as a lowercase hex blake3 digest. Pinned at layout 5,
+/// which adds closed streaming relations after the namespace-sliced identifier
+/// layout at version 4.
 /// The value is fully deterministic: the identifier is a fixed index and the
 /// NameTable is excluded from the pre-image by construction.
-const REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_3: &str =
-    "6aa5c10c84fe4d9877ab6925cc30d2fab8bc887a09679d5edb15eefb00aaa959";
+const REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_5: &str =
+    "810b6fa336618ee9c229779edbe71a9b90497d8ebbf346fa7d16c58d9c74cc07";
 
 /// The representative value the constant pins: a schema of one public declaration,
 /// a `Newtype` wrapping `Boolean`. Built without a NameTable — the identifier is a
 /// fixed index and the table is not part of the content-identity pre-image.
 fn representative_schema() -> EncodedSchema {
     EncodedSchema::new(vec![EncodedDeclaration::public(EncodedType::Newtype(
-        EncodedNewtype::new(Identifier::new(0), EncodedReference::Boolean),
+        EncodedNewtype::new(Identifier::Schema(0), EncodedReference::Boolean),
     ))])
 }
 
 #[test]
 fn representative_schema_identity_is_pinned_under_the_current_layout() {
+    let identity = representative_schema()
+        .content_identity()
+        .expect("content identity");
+
     // The layout version this witness pins must be the one the domain currently
     // reports. If the domain moved to a new layout, the constant above is stale by
     // definition and must be re-derived deliberately.
     assert_eq!(
         EncodedSchemaDomain::layout_version().value(),
-        3,
+        5,
         "the witnessed layout version moved; re-derive the pinned hash deliberately",
     );
 
-    let identity = representative_schema()
-        .content_identity()
-        .expect("content identity");
-
     assert_eq!(
         identity.to_hexadecimal(),
-        REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_3,
+        REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_5,
         "the archived representation of a EncodedSchema value changed — this is a layout \
          event: bump EncodedSchemaDomain's LayoutVersion in src/declaration.rs, document \
          why the archived shape moved, and update this constant deliberately",

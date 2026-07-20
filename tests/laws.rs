@@ -49,14 +49,14 @@ fn law_one_round_trip_core() {
     ];
     for (expected, source) in cases {
         let block = recognize_single(source);
-        let mut names = NameTable::new();
+        let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
         let value = evaluator
             .decode(*expected, &block, &mut names)
             .unwrap_or_else(|error| panic!("decode {source}: {error}"));
         let re_encoded = evaluator
             .encode(*expected, &value, &names)
             .unwrap_or_else(|error| panic!("encode {source}: {error}"));
-        let mut names_again = NameTable::new();
+        let mut names_again = NameTable::new(name_table::IdentifierNamespace::Schema);
         let value_again = evaluator
             .decode(*expected, &re_encoded, &mut names_again)
             .unwrap_or_else(|error| panic!("re-decode {source}: {error}"));
@@ -78,7 +78,7 @@ fn law_two_round_trip_canonical() {
     ];
     for (expected, source) in cases {
         let block = recognize_single(source);
-        let mut names = NameTable::new();
+        let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
         let value = evaluator
             .decode(*expected, &block, &mut names)
             .unwrap_or_else(|error| panic!("decode {source}: {error}"));
@@ -100,7 +100,7 @@ fn law_three_interning_atomicity() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
 
-    let mut names = NameTable::new();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     names.intern(Name::new("PriorName"));
 
     let bytes_before = names.to_archive_bytes().expect("before").as_ref().to_vec();
@@ -150,11 +150,11 @@ fn law_four_identity_preserving_across_revisions() {
     let block_old = recognize_single("CommitSequence.{ Integer }");
     let block_new = recognize_single("CommitSequence.( Integer )");
 
-    let mut names_old = NameTable::new();
+    let mut names_old = NameTable::new(name_table::IdentifierNamespace::Schema);
     let value_old = evaluator_old
         .decode(COMMIT_SEQUENCE, &block_old, &mut names_old)
         .expect("decode old text with old table");
-    let mut names_new = NameTable::new();
+    let mut names_new = NameTable::new(name_table::IdentifierNamespace::Schema);
     let value_new = evaluator_new
         .decode(COMMIT_SEQUENCE, &block_new, &mut names_new)
         .expect("decode new text with new table");

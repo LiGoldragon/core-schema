@@ -30,7 +30,7 @@ fn scalar_newtypes(order: [(&str, u32); 2]) -> Vec<AssignedMember> {
                 // interned one by `from_assignment`; a scalar reference carries no
                 // identifier, so the member's Core content is fixed by its assignment.
                 AssignedKind::Declaration(EncodedDeclaration::public(EncodedType::Newtype(
-                    EncodedNewtype::new(Identifier::new(0), EncodedReference::Integer),
+                    EncodedNewtype::new(Identifier::Schema(0), EncodedReference::Integer),
                 ))),
             )
         })
@@ -45,7 +45,7 @@ fn authority_assignment_is_order_independent() {
     let universe = EncodedUniverseId::new(42);
     // Scalar newtype references carry no name identifier, so the source name space is
     // never consulted for these members; an empty table exercises the plumbing.
-    let source = NameTable::default();
+    let source = NameTable::new(name_table::IdentifierNamespace::Schema);
     let forward = EncodedUniverse::from_assignment(
         universe,
         scalar_newtypes([("Alpha", 0), ("Beta", 1)]),
@@ -69,11 +69,19 @@ fn authority_assignment_is_order_independent() {
     // identifier 0 and `Beta` (local 1) always identifier 1 — never the parse order.
     for built in [&forward, &reverse] {
         assert_eq!(
-            built.names().resolve(Identifier::new(0)).unwrap().as_str(),
+            built
+                .names()
+                .resolve(Identifier::Schema(0))
+                .unwrap()
+                .as_str(),
             "Alpha"
         );
         assert_eq!(
-            built.names().resolve(Identifier::new(1)).unwrap().as_str(),
+            built
+                .names()
+                .resolve(Identifier::Schema(1))
+                .unwrap()
+                .as_str(),
             "Beta"
         );
     }
@@ -99,7 +107,7 @@ fn authority_assignment_is_order_independent() {
 /// of `link`) carries, standing in for two ingestions that parsed the same declared
 /// schema in different orders. The name→local assignment is held constant.
 fn cross_referencing_schema(interning_order: [&str; 4]) -> (NameTable, Vec<AssignedMember>) {
-    let mut names = NameTable::default();
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     for name in interning_order {
         names.intern(Name::new(name));
     }
@@ -182,7 +190,7 @@ fn interior_names_are_re_stamped_to_canonical_order() {
 #[test]
 fn duplicate_assigned_identity_is_rejected() {
     let universe = EncodedUniverseId::new(7);
-    let source = NameTable::default();
+    let source = NameTable::new(name_table::IdentifierNamespace::Schema);
     let clash = EncodedUniverse::from_assignment(
         universe,
         scalar_newtypes([("Alpha", 3), ("Beta", 3)]),
