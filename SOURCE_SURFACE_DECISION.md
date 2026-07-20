@@ -71,26 +71,16 @@ construct is introduced.
   candidate claims old/new frame compatibility; that needs the later signal
   projection and bidirectional daemon tests.
 
-## NameTree-only transparent aliases
+## Canonical names
 
-No alias source form is proposed or emitted.
+Each encoded identifier has one canonical NameTable name. Schema has no
+transparent alias declaration or alias-admission source form, and Rust projection
+emits no transparent type alias. A reference always resolves to its one canonical
+identifier name.
 
-The accepted semantic route exists in the producer foundation: `NameTable` records
-an additional spelling for an existing encoded identifier; decode resolves that
-spelling to the original identifier; a Rust emitter can render the corresponding
-transparent target-language alias. No encoded alias declaration is added.
-
-The current generic codec gives a concrete reason not to fabricate a source form:
-`StructuralEvaluator` resolves every `Atom` through `NameInterner::intern` before
-language reification. An alias declaration head decoded as an atom would therefore
-mint a new identifier, which contradicts a transparent alias's required identity
-and cannot be repaired by `NameTable::add_alias` without a special bypass.
-
-The minimal normal-form follow-up is a NameTable-boundary alias-admission codec:
-it must pass the declared alias spelling to `add_alias` without allocating an
-identifier, then prove source decode, NameTable alias lookup, and Rust emission
-against one target. That is a new boundary capability, not evidence for adding an
-encoded alias branch. No encoded alias branch is recommended.
+This does not govern domain values that happen to be called aliases. Those remain
+ordinary encoded structure where their domain requires them; they are not
+NameTable names or language aliases.
 
 ## Manifest imports and actor adapters
 
@@ -116,16 +106,13 @@ the typed component dependency graph, not authored as arbitrary source syntax.
 2. **Streaming placement:** installed as the trailing seventh positional document
    slot. Its expected type distinguishes the relation vector from declarations;
    no section label or Spirit-specific construct was added.
-3. **Alias admission:** aliases remain NameTree-only. `NameTable::add_alias`
-   resolves an additional spelling to the target encoded identifier without adding an
-   encoded alias declaration. A source spelling remains unruled and is not authored.
+3. **Canonical names:** every encoded identifier has one NameTable name. No
+   transparent source, NameTable, or Rust alias mechanism is present.
 4. **Imports:** manifest dependency edges remain the only import mechanism; the old
    in-document imports slot stays empty.
 5. **Adapter scope:** generic actor machinery remains in shared runtime; no general
    schema-authored implementation-block surface is added.
 
-- Alias source admission still needs a codec-emitted, round-tripped artifact and a
-  generated-Rust fidelity proof before any spelling is adopted.
 - The installed streaming relation still needs signal-frame generation and old/new
   daemon compatibility evidence.
 - No macro-definition spelling is described or changed.
