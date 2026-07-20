@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable};
+use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable, NameTableError};
 use structural_codec::ids::{
     EncodedUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedEncodedTypeId,
 };
@@ -180,7 +180,7 @@ impl EncodedUniverse {
         let canonical: Vec<Identifier> = ordered
             .iter()
             .map(|member| builder.intern_name(member.name.clone()))
-            .collect();
+            .collect::<Result<_, NameTableError>>()?;
         // Phase 2: register each member, re-stamping declaration bodies' interior
         // names into the same canonical table through the source name space.
         for (member, own) in ordered.iter().zip(canonical) {
@@ -410,14 +410,14 @@ impl EncodedUniverseBuilder {
     }
 
     /// Intern a name into the shared table.
-    pub fn intern(&mut self, name: &str) -> Identifier {
+    pub fn intern(&mut self, name: &str) -> Result<Identifier, NameTableError> {
         self.names.intern(Name::new(name))
     }
 
     /// Intern an owned [`Name`] into the shared table. The authority-provided path
     /// interns in canonical assigned-id order, so it controls the interning order
     /// directly rather than through the `&str` convenience above.
-    pub fn intern_name(&mut self, name: Name) -> Identifier {
+    pub fn intern_name(&mut self, name: Name) -> Result<Identifier, NameTableError> {
         self.names.intern(name)
     }
 
@@ -455,27 +455,35 @@ impl EncodedUniverseBuilder {
         id: ScopedEncodedTypeId,
         name: &str,
         slot: ScalarSlot,
-    ) -> Identifier {
-        let identifier = self.intern(name);
+    ) -> Result<Identifier, NameTableError> {
+        let identifier = self.intern(name)?;
         self.scalars.insert(slot, id);
         self.register(id, identifier, MemberKind::Primitive);
-        identifier
+        Ok(identifier)
     }
 
     /// Register a scalar leaf primitive that is never a reference target (so it
     /// fills no scalar slot) — `Float`, which the fixture uses only as a standalone
     /// leaf value type.
-    pub fn primitive_leaf(&mut self, id: ScopedEncodedTypeId, name: &str) -> Identifier {
-        let identifier = self.intern(name);
+    pub fn primitive_leaf(
+        &mut self,
+        id: ScopedEncodedTypeId,
+        name: &str,
+    ) -> Result<Identifier, NameTableError> {
+        let identifier = self.intern(name)?;
         self.register(id, identifier, MemberKind::Primitive);
-        identifier
+        Ok(identifier)
     }
 
     /// Register the `Field` meta-type under a name.
-    pub fn field_meta(&mut self, id: ScopedEncodedTypeId, name: &str) -> Identifier {
-        let identifier = self.intern(name);
+    pub fn field_meta(
+        &mut self,
+        id: ScopedEncodedTypeId,
+        name: &str,
+    ) -> Result<Identifier, NameTableError> {
+        let identifier = self.intern(name)?;
         self.register(id, identifier, MemberKind::FieldMeta);
-        identifier
+        Ok(identifier)
     }
 
     /// Register a user declaration at an allocated id. The declaration's identifier

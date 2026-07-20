@@ -22,7 +22,7 @@ fn rename(original: &NameTable, target: name_table::Identifier, replacement: &st
                 .expect("known identifier")
                 .clone()
         };
-        renamed.intern(name);
+        renamed.intern(name).expect("rebuild renamed table");
     }
     renamed
 }

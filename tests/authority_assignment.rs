@@ -109,14 +109,16 @@ fn authority_assignment_is_order_independent() {
 fn cross_referencing_schema(interning_order: [&str; 4]) -> (NameTable, Vec<AssignedMember>) {
     let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
     for name in interning_order {
-        names.intern(Name::new(name));
+        names
+            .intern(Name::new(name))
+            .expect("allocate fixed test source name");
     }
     // Re-interning returns the already-assigned identifier (dedupe), so these read the
     // source identities the chosen order produced.
-    let record = names.intern(Name::new("Record"));
-    let label = names.intern(Name::new("label"));
-    let link = names.intern(Name::new("link"));
-    let target = names.intern(Name::new("Target"));
+    let record = names.intern(Name::new("Record")).expect("intern Record");
+    let label = names.intern(Name::new("label")).expect("intern label");
+    let link = names.intern(Name::new("link")).expect("intern link");
+    let target = names.intern(Name::new("Target")).expect("intern Target");
 
     let record_type = EncodedType::Struct(EncodedStruct::new(
         record,
@@ -160,8 +162,12 @@ fn interior_names_are_re_stamped_to_canonical_order() {
     // carried interior identifiers through verbatim would hash differently — the test
     // bites only because the re-stamping neutralises that.
     assert_ne!(
-        source_forward.intern(Name::new("Target")),
-        source_reverse.intern(Name::new("Target")),
+        source_forward
+            .intern(Name::new("Target"))
+            .expect("look up forward Target"),
+        source_reverse
+            .intern(Name::new("Target"))
+            .expect("look up reverse Target"),
         "the two parse orders must assign different source identifiers",
     );
 

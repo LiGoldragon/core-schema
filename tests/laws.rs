@@ -101,7 +101,9 @@ fn law_three_interning_atomicity() {
     let evaluator = StructuralEvaluator::new(&table);
 
     let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
-    names.intern(Name::new("PriorName"));
+    names
+        .intern(Name::new("PriorName"))
+        .expect("allocate prior name");
 
     let bytes_before = names.to_archive_bytes().expect("before").as_ref().to_vec();
     let identity_before = names.identity().expect("identity before");

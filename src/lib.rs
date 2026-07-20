@@ -1,11 +1,11 @@
 //! # core-schema
 //!
-//! The first REAL stringless Core schema layer of the next-generation NOTA family,
-//! and the first REAL Textual form ([`TextualSchema`]).
+//! The first REAL stringless encoded-schema layer of the next-generation NOTA family,
+//! and the first REAL TextualForm pivot ([`TextualSchema`]).
 //!
 //! Slice one delivered four foundation crates — `content-identity`, `name-table`,
 //! `raw-discovery`, `structural-codec` — with a synthetic fixture universe whose
-//! ids keyed no real Core layout. This crate makes that layer real:
+//! ids keyed no real encoded-form layout. This crate makes that layer real:
 //!
 //! - **Stringless `EncodedSchema` value types** ([`declaration`], [`mod@reference`])
 //!   modelled on `schema-language`'s `EncodedType { Struct | Enum | Newtype }`: every
@@ -14,19 +14,17 @@
 //!   identity is blake3 over the stringless rkyv bytes with the NameTable excluded,
 //!   so a rename is hash-stable by construction.
 //! - **The universe bridge** ([`universe`]): a set of `EncodedSchema` declarations
-//!   forms a `structural-codec` Core universe — one [`ScopedEncodedTypeId`] per type,
-//!   one constructor id per constructor, and each constructor's
-//!   [`PositionalSignature`] DERIVED from the Core layout. This closes
-//!   `structural-codec`'s deferred signature-vs-Core deviation:
+//!   forms a `structural-codec` encoded universe — one [`ScopedEncodedTypeId`] per
+//!   type, one constructor id per constructor, and each constructor's
+//!   [`PositionalSignature`] derived from the encoded-form layout.
 //!   [`EncodedUniverse::validate_table`] proves every authored codec signature equals
-//!   the Core field signature, and a mismatch fails loudly.
+//!   the encoded-form field signature, and a mismatch fails loudly.
 //! - **`TextualSchema`** ([`textual`]): real schema TEXT decodes — through
 //!   raw-discovery and the trusted evaluator — into real `EncodedSchema` values with a
-//!   real `NameTable`, and encodes back canonically. The derived-name rule (a field
-//!   name elided when it equals the `snake_case` of its type) works against the real
-//!   Core layout.
+//!   real `NameTable`, and encodes back canonically. Field names are not authored;
+//!   derived names exist only at the NameTable/emission boundary.
 //!
-//! This crate is greenfield by design. It models the proven Core shapes of the
+//! This crate is greenfield by design. It models the proven encoded shapes of the
 //! existing `schema-language`/`schema`/`schema-rust` repositories in the new
 //! stringless discipline; convergence with those repositories happens later on the
 //! release train and readapts to it. See `ARCHITECTURE.md`.
@@ -40,8 +38,8 @@ pub mod error;
 pub mod fixture;
 pub mod manifest;
 pub mod reference;
-/// Experimental source-surface candidates, isolated to this proposal branch.
-pub mod source_surface_proposal;
+/// Codec-backed source-surface witnesses for the installed document grammar.
+pub mod source_surface_candidates;
 pub mod textual;
 pub mod universe;
 
@@ -50,7 +48,8 @@ pub use declaration::{
     EncodedSchemaDomain, EncodedStruct, EncodedType, EncodedVariant, StreamingRelation, Visibility,
 };
 pub use document::{
-    DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,
+    DOCUMENT_SLOTS, DeclarationConstructor, InterfaceVariantConstructor, ReferenceConstructor,
+    SchemaDocumentGrammar,
 };
 pub use error::{EncodedIdentityError, TextualError, UniverseError};
 pub use fixture::FixtureFamily;

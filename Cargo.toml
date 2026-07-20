@@ -1,11 +1,11 @@
 [package]
 name         = "core-schema"
-version      = "0.5.0"
+version      = "0.6.0"
 edition      = "2024"
 rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/core-schema"
-description  = "The first real stringless Core schema layer and the first real Textual form (TextualSchema): stringless EncodedSchema value types, the universe bridge to structural-codec with Core-derived positional signatures, and the schema-text to EncodedSchema round-trip."
+description  = "The first real stringless encoded-schema layer and TextualForm pivot (TextualSchema): encoded schema values, a structural-codec universe bridge with encoded-form-derived positional signatures, and schema text round trips."
 publish      = false
 
 [lib]
@@ -13,10 +13,10 @@ name = "core_schema"
 path = "src/lib.rs"
 
 [dependencies]
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "a591162507bc00f8971507826870d93c3ef50d1e" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "a591162507bc00f8971507826870d93c3ef50d1e" }
-raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "a591162507bc00f8971507826870d93c3ef50d1e" }
-structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "a591162507bc00f8971507826870d93c3ef50d1e" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "e67c4cf594cb3407e434aba11e168c4d515de543" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "e67c4cf594cb3407e434aba11e168c4d515de543" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "e67c4cf594cb3407e434aba11e168c4d515de543" }
+structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "e67c4cf594cb3407e434aba11e168c4d515de543" }
 rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror        = "2"
 
@@ -27,7 +27,7 @@ thiserror        = "2"
 # (`tests/derived_conformance.rs`): the derive lives upstream in protos, but the
 # proof that its emitted entries equal these authored entries belongs here, where a
 # single pin governs both.
-structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "a591162507bc00f8971507826870d93c3ef50d1e" }
+structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "e67c4cf594cb3407e434aba11e168c4d515de543" }
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -1,4 +1,4 @@
-//! Reproducibly emit the codec-backed source candidates from the proposal branch.
+//! Reproducibly emit codec-backed witnesses for installed source forms.
 //!
 //! Run with `cargo run --example source_surface_candidates`. The printed source blocks
 //! are not hand-authored examples: the experimental StructureTree emits them and the
@@ -6,7 +6,7 @@
 
 use core_schema::{
     EncodedReference, EncodedVariant, StreamingRelation,
-    source_surface_proposal::SourceSurfaceCandidates,
+    source_surface_candidates::SourceSurfaceCandidates,
 };
 use name_table::{IdentifierNamespace, Name, NameTable};
 
@@ -14,9 +14,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let candidates = SourceSurfaceCandidates::build()?;
 
     let mut interface_names = NameTable::new(IdentifierNamespace::Schema);
-    let closed = interface_names.intern(Name::new("Closed"));
-    let opened = interface_names.intern(Name::new("Opened"));
-    let token = interface_names.intern(Name::new("SubscriptionToken"));
+    let closed = interface_names.intern(Name::new("Closed"))?;
+    let opened = interface_names.intern(Name::new("Opened"))?;
+    let token = interface_names.intern(Name::new("SubscriptionToken"))?;
     let variants = vec![
         EncodedVariant::new(closed, None),
         EncodedVariant::new(opened, Some(EncodedReference::Plain(token))),
@@ -29,11 +29,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let mut streaming_names = NameTable::new(IdentifierNamespace::Schema);
-    let opening = streaming_names.intern(Name::new("OpenSubscription"));
-    let acknowledgement = streaming_names.intern(Name::new("SubscriptionOpened"));
-    let streaming_token = streaming_names.intern(Name::new("SubscriptionToken"));
-    let event = streaming_names.intern(Name::new("IntentEvent"));
-    let close_token = streaming_names.intern(Name::new("CloseSubscription"));
+    let opening = streaming_names.intern(Name::new("OpenSubscription"))?;
+    let acknowledgement = streaming_names.intern(Name::new("SubscriptionOpened"))?;
+    let streaming_token = streaming_names.intern(Name::new("SubscriptionToken"))?;
+    let event = streaming_names.intern(Name::new("IntentEvent"))?;
+    let close_token = streaming_names.intern(Name::new("CloseSubscription"))?;
     let relations = vec![StreamingRelation::new(
         opening,
         acknowledgement,

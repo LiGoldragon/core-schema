@@ -25,11 +25,11 @@ use structural_codec::{CanonicalText, EncodedForm, StructuralEvaluator, Textual,
 
 use crate::declaration::{
     DeclarationRole, EncodedDeclaration, EncodedEnum, EncodedField, EncodedNewtype, EncodedSchema,
-    EncodedStruct, EncodedType, EncodedVariant,
+    EncodedStruct, EncodedType, EncodedVariant, StreamingRelation,
 };
 use crate::document::{
-    DOCUMENT_SLOTS, DeclarationConstructor, INTERFACE, ReferenceConstructor, SchemaDocumentGrammar,
-    TYPES_BLOCK,
+    DOCUMENT_SLOTS, DeclarationConstructor, INTERFACE, InterfaceVariantConstructor,
+    ReferenceConstructor, STREAMING_RELATIONS, SchemaDocumentGrammar, TYPES_BLOCK,
 };
 use crate::error::TextualError;
 use crate::fixture::FixtureFamily;
@@ -63,7 +63,7 @@ impl TextualSchema {
         })
     }
 
-    /// Build the Textual view over the six-slot document grammar, so a whole
+    /// Build the Textual view over the seven-slot document grammar, so a whole
     /// spirit-min-shaped document decodes to a full [`EncodedSchema`] and encodes back.
     /// The grammar targets no single Core layout, so its universe carries no members;
     /// document decode dispatches on grammar constructor indices, not universe types.
@@ -215,7 +215,7 @@ impl TextualSchema {
         };
         let reference = self.reference_from_atom(*type_id, names)?;
         let derived = reference.derived_field_name(names)?;
-        let identifier = names.intern(name_table::Name::new(derived));
+        let identifier = names.intern(name_table::Name::new(derived))?;
         Ok(EncodedField::new(identifier, reference))
     }
 
@@ -249,7 +249,7 @@ impl TextualSchema {
     ) -> Result<StructuralValue, TextualError> {
         let inner = newtype
             .reference()
-            .type_atom_identifier(names)
+            .type_atom_identifier(names)?
             .ok_or(TextualError::ReifyShape("newtype inner reference"))?;
         let body = StructuralValue::Delimited(vec![StructuralValue::Atom(inner)]);
         Ok(StructuralValue::chosen(
@@ -286,7 +286,7 @@ impl TextualSchema {
     ) -> Result<StructuralValue, TextualError> {
         let type_id = field
             .reference()
-            .type_atom_identifier(names)
+            .type_atom_identifier(names)?
             .ok_or(TextualError::ReifyShape("field type reference"))?;
         // A field is nothing but the type standing at its position. Its name is NEVER
         // written (field names are illegal in every Protos surface, psyche ruling
@@ -399,22 +399,18 @@ impl TextualSchema {
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
         match reference {
-            EncodedReference::Integer => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Integer,
-                names,
-            )),
-            EncodedReference::String => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::String,
-                names,
-            )),
-            EncodedReference::Boolean => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Boolean,
-                names,
-            )),
-            EncodedReference::Bytes => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Bytes,
-                names,
-            )),
+            EncodedReference::Integer => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Integer, names)
+            }
+            EncodedReference::String => {
+                Self::reference_scalar_mirror(ReferenceConstructor::String, names)
+            }
+            EncodedReference::Boolean => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Boolean, names)
+            }
+            EncodedReference::Bytes => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Bytes, names)
+            }
             EncodedReference::Plain(identifier) => Ok(StructuralValue::chosen(
                 ReferenceConstructor::Plain.index(),
                 StructuralValue::Atom(*identifier),
@@ -427,7 +423,7 @@ impl TextualSchema {
                 let keyword = constructor
                     .keyword()
                     .ok_or(TextualError::ReifyShape("projection keyword"))?;
-                let keyword_id = names.intern(Name::new(keyword));
+                let keyword_id = names.intern(Name::new(keyword))?;
                 let inner = self.reflect_reference(argument, names)?;
                 Ok(StructuralValue::chosen(
                     constructor.index(),
@@ -451,25 +447,25 @@ impl TextualSchema {
     fn reference_scalar_mirror(
         constructor: ReferenceConstructor,
         names: &mut NameTable,
-    ) -> StructuralValue {
+    ) -> Result<StructuralValue, TextualError> {
         let keyword = constructor
             .keyword()
             .expect("a scalar constructor has a keyword");
-        StructuralValue::chosen(
+        Ok(StructuralValue::chosen(
             constructor.index(),
-            StructuralValue::Atom(names.intern(Name::new(keyword))),
-        )
+            StructuralValue::Atom(names.intern(Name::new(keyword))?),
+        ))
     }
 
-    // ===== the six-slot document layout =====
+    // ===== the seven-slot document layout =====
 
-    /// Decode a whole six-slot document — `imports {} input [] output [] types {}
-    /// generics {} impls {}` — into a full [`EncodedSchema`]. The two interface lines
-    /// decode into role-tagged enumeration declarations (the [`InterfaceInput`] /
-    /// [`InterfaceOutput`] roots) and the `types` block into data declarations; all
-    /// three land in the one declaration substrate, interface roots first. The
-    /// imports, generics, and impls slots must be empty braces (a non-empty one is
-    /// not yet modelled and is rejected, never dropped).
+    /// Decode a whole seven-slot document — `imports {} input [] output [] types {}
+    /// generics {} impls {} streaming []` — into a full [`EncodedSchema`]. The two
+    /// interface lines decode into role-tagged enumeration declarations (the
+    /// [`InterfaceInput`] / [`InterfaceOutput`] roots) and the `types` block into data
+    /// declarations; all three land in the one declaration substrate, interface roots
+    /// first. Imports remain manifest edges; generics and impls remain empty braces;
+    /// the trailing bracket is the accepted closed streaming-relation vector.
     ///
     /// [`InterfaceInput`]: DeclarationRole::InterfaceInput
     /// [`InterfaceOutput`]: DeclarationRole::InterfaceOutput
@@ -491,6 +487,7 @@ impl TextualSchema {
         let types = self.decode_types_slot(&roots[3], names)?;
         Self::require_empty_brace(&roots[4], "generics")?;
         Self::require_empty_brace(&roots[5], "impls")?;
+        let streaming_relations = self.decode_streaming_slot(&roots[6], names)?;
         let mut declarations =
             Vec::with_capacity(types.len() + input.iter().count() + output.iter().count());
         if let Some(input) = input {
@@ -500,10 +497,13 @@ impl TextualSchema {
             declarations.push(output);
         }
         declarations.extend(types);
-        Ok(EncodedSchema::new(declarations))
+        Ok(EncodedSchema::with_streaming_relations(
+            declarations,
+            streaming_relations,
+        ))
     }
 
-    /// Encode a [`EncodedSchema`] back into six-slot document text, one slot per line.
+    /// Encode a [`EncodedSchema`] back into seven-slot document text, one slot per line.
     /// The interface roots render into the `input` / `output` brackets and the data
     /// declarations into the `types` block; a schema missing an interface root is
     /// rejected loudly rather than rendered with an empty protocol line.
@@ -527,6 +527,7 @@ impl TextualSchema {
             self.encode_types_slot(schema, names)?,
             Self::empty_brace(),
             Self::empty_brace(),
+            self.encode_streaming_slot(schema.streaming_relations(), names)?,
         ];
         Ok(slots.join("\n"))
     }
@@ -681,7 +682,7 @@ impl TextualSchema {
         let name = names.intern(Name::new(
             role.interface_root_name()
                 .ok_or(TextualError::ReifyShape("interface role"))?,
-        ));
+        ))?;
         Ok(Some(EncodedDeclaration::interface(
             role,
             EncodedType::Enumeration(EncodedEnum::new(name, variants)),
@@ -700,6 +701,47 @@ impl TextualSchema {
         let block = self
             .document_evaluator()
             .encode(INTERFACE, &mirror, names)?;
+        Ok(block.canonical_text())
+    }
+
+    /// Decode the trailing streaming-relation vector. Empty brackets mean that this
+    /// schema has no subscription relation; no empty declaration is fabricated.
+    fn decode_streaming_slot(
+        &self,
+        block: &Block,
+        names: &mut NameTable,
+    ) -> Result<Vec<StreamingRelation>, TextualError> {
+        let value = self
+            .document_evaluator()
+            .decode(STREAMING_RELATIONS, block, names)?;
+        let StructuralValue::Chosen { payload, .. } = value else {
+            return Err(TextualError::ReifyShape("streaming relation vector"));
+        };
+        let StructuralValue::Delimited(relations) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape(
+                "streaming relation vector entries",
+            ));
+        };
+        relations
+            .iter()
+            .map(|relation| self.reify_streaming_relation(relation))
+            .collect()
+    }
+
+    /// Emit the accepted closed streaming relation algebra into the trailing vector.
+    fn encode_streaming_slot(
+        &self,
+        relations: &[StreamingRelation],
+        names: &mut NameTable,
+    ) -> Result<String, TextualError> {
+        let mut values = Vec::with_capacity(relations.len());
+        for relation in relations {
+            values.push(self.reflect_streaming_relation(relation)?);
+        }
+        let mirror = StructuralValue::chosen(0, StructuralValue::Delimited(values));
+        let block = self
+            .document_evaluator()
+            .encode(STREAMING_RELATIONS, &mirror, names)?;
         Ok(block.canonical_text())
     }
 
@@ -875,24 +917,43 @@ impl TextualSchema {
         entries.iter().map(Self::reify_interface_variant).collect()
     }
 
-    /// Reify one `Name.Payload` interface entry into a payload-carrying variant.
+    /// Reify one ordered unit-or-one-payload interface alternative. Constructor choice
+    /// is structural; the encoded algebra keeps one optional payload field.
     fn reify_interface_variant(entry: &StructuralValue) -> Result<EncodedVariant, TextualError> {
         let StructuralValue::Delegated(inner) = entry else {
             return Err(TextualError::ReifyShape("interface entry delegate"));
         };
-        let StructuralValue::Chosen { payload, .. } = inner.as_ref() else {
+        let StructuralValue::Chosen {
+            constructor,
+            payload,
+        } = inner.as_ref()
+        else {
             return Err(TextualError::ReifyShape("interface entry constructor"));
         };
-        let StructuralValue::Application(head, reference) = payload.as_ref() else {
-            return Err(TextualError::ReifyShape("interface entry application"));
-        };
-        let StructuralValue::Atom(name) = head.as_ref() else {
-            return Err(TextualError::ReifyShape("interface entry name"));
-        };
-        Ok(EncodedVariant::new(
-            *name,
-            Some(Self::reify_reference(reference)?),
-        ))
+        match InterfaceVariantConstructor::from_index(*constructor).ok_or(
+            TextualError::ReifyShape("interface entry constructor index"),
+        )? {
+            InterfaceVariantConstructor::Unit => {
+                let StructuralValue::Atom(name) = payload.as_ref() else {
+                    return Err(TextualError::ReifyShape("unit interface entry name"));
+                };
+                Ok(EncodedVariant::new(*name, None))
+            }
+            InterfaceVariantConstructor::Payload => {
+                let StructuralValue::Application(head, reference) = payload.as_ref() else {
+                    return Err(TextualError::ReifyShape(
+                        "payload interface entry application",
+                    ));
+                };
+                let StructuralValue::Atom(name) = head.as_ref() else {
+                    return Err(TextualError::ReifyShape("payload interface entry name"));
+                };
+                Ok(EncodedVariant::new(
+                    *name,
+                    Some(Self::reify_reference(reference)?),
+                ))
+            }
+        }
     }
 
     /// Reflect an interface root's enumeration into its interface-line mirror.
@@ -911,24 +972,116 @@ impl TextualSchema {
         ))
     }
 
-    /// Reflect one interface variant into its `Name.Payload` entry mirror.
+    /// Reflect one interface variant into its disjoint unit-or-one-payload mirror.
     fn reflect_interface_variant(
         &self,
         variant: &EncodedVariant,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
-        let reference = variant
-            .payload()
-            .ok_or(TextualError::ReifyShape("interface entry payload"))?;
-        let reference_mirror = self.reflect_reference(reference, names)?;
-        let entry = StructuralValue::chosen(
-            0,
-            StructuralValue::Application(
-                Box::new(StructuralValue::Atom(variant.identifier())),
-                Box::new(StructuralValue::Delegated(Box::new(reference_mirror))),
+        let entry = match variant.payload() {
+            None => StructuralValue::chosen(
+                InterfaceVariantConstructor::Unit.index(),
+                StructuralValue::Atom(variant.identifier()),
             ),
-        );
+            Some(reference) => {
+                let reference_mirror = self.reflect_reference(reference, names)?;
+                StructuralValue::chosen(
+                    InterfaceVariantConstructor::Payload.index(),
+                    StructuralValue::Application(
+                        Box::new(StructuralValue::Atom(variant.identifier())),
+                        Box::new(StructuralValue::Delegated(Box::new(reference_mirror))),
+                    ),
+                )
+            }
+        };
         Ok(StructuralValue::Delegated(Box::new(entry)))
+    }
+
+    /// Reify one five-position streaming relation. Each position has a fixed
+    /// expected type in the StructureTree; the encoded relation carries only the
+    /// corresponding identifiers and typed references.
+    fn reify_streaming_relation(
+        &self,
+        relation: &StructuralValue,
+    ) -> Result<StreamingRelation, TextualError> {
+        let StructuralValue::Delegated(relation) = relation else {
+            return Err(TextualError::ReifyShape("streaming relation delegate"));
+        };
+        let StructuralValue::Chosen { payload, .. } = relation.as_ref() else {
+            return Err(TextualError::ReifyShape("streaming relation constructor"));
+        };
+        let StructuralValue::Delimited(positions) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape("streaming relation positions"));
+        };
+        let [opening, acknowledgement, token, event, close_token] = positions.as_slice() else {
+            return Err(TextualError::ReifyShape(
+                "five streaming relation positions",
+            ));
+        };
+        Ok(StreamingRelation::new(
+            Self::reify_streaming_identifier(opening, "streaming opener")?,
+            Self::reify_streaming_identifier(acknowledgement, "streaming acknowledgement")?,
+            Self::reify_streaming_reference(token, "streaming token")?,
+            Self::reify_streaming_reference(event, "streaming event")?,
+            Self::reify_streaming_reference(close_token, "streaming close token")?,
+        ))
+    }
+
+    fn reify_streaming_identifier(
+        value: &StructuralValue,
+        expected: &'static str,
+    ) -> Result<name_table::Identifier, TextualError> {
+        let StructuralValue::Delegated(value) = value else {
+            return Err(TextualError::ReifyShape(expected));
+        };
+        let StructuralValue::Chosen { payload, .. } = value.as_ref() else {
+            return Err(TextualError::ReifyShape(expected));
+        };
+        let StructuralValue::Atom(identifier) = payload.as_ref() else {
+            return Err(TextualError::ReifyShape(expected));
+        };
+        Ok(*identifier)
+    }
+
+    fn reify_streaming_reference(
+        value: &StructuralValue,
+        expected: &'static str,
+    ) -> Result<EncodedReference, TextualError> {
+        Ok(EncodedReference::Plain(Self::reify_streaming_identifier(
+            value, expected,
+        )?))
+    }
+
+    fn reflect_streaming_relation(
+        &self,
+        relation: &StreamingRelation,
+    ) -> Result<StructuralValue, TextualError> {
+        let reference = |reference: &EncodedReference| {
+            let EncodedReference::Plain(identifier) = reference else {
+                return Err(TextualError::ReifyShape("plain streaming reference"));
+            };
+            Ok(StructuralValue::Delegated(Box::new(
+                StructuralValue::chosen(0, StructuralValue::Atom(*identifier)),
+            )))
+        };
+        Ok(StructuralValue::Delegated(Box::new(
+            StructuralValue::chosen(
+                0,
+                StructuralValue::Delimited(vec![
+                    StructuralValue::Delegated(Box::new(StructuralValue::chosen(
+                        0,
+                        StructuralValue::Atom(relation.opening_input_variant()),
+                    ))),
+                    StructuralValue::Delegated(Box::new(StructuralValue::chosen(
+                        0,
+                        StructuralValue::Atom(relation.acknowledgement_output_variant()),
+                    ))),
+                    reference(relation.token())?,
+                    reference(relation.event())?,
+                    reference(relation.close_token())?,
+                ]),
+            ),
+        )))
     }
 }
 

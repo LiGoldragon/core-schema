@@ -116,7 +116,7 @@ impl EncodedReference {
             Self::String | Self::Integer | Self::Boolean | Self::Bytes => self.clone(),
             Self::Plain(identifier) => {
                 let name = source.resolve(*identifier)?.clone();
-                Self::Plain(canonical.intern(name))
+                Self::Plain(canonical.intern(name)?)
             }
             Self::SingleTypeApplication {
                 projection,
@@ -163,17 +163,17 @@ impl EncodedReference {
     pub fn type_atom_identifier<Interner: NameInterner + ?Sized>(
         &self,
         interner: &mut Interner,
-    ) -> Option<Identifier> {
-        match self {
+    ) -> Result<Option<Identifier>, NameTableError> {
+        Ok(match self {
             Self::Plain(identifier) => Some(*identifier),
-            Self::String => Some(interner.intern(Name::new("String"))),
-            Self::Integer => Some(interner.intern(Name::new("Integer"))),
-            Self::Boolean => Some(interner.intern(Name::new("Boolean"))),
-            Self::Bytes => Some(interner.intern(Name::new("Bytes"))),
+            Self::String => Some(interner.intern(Name::new("String"))?),
+            Self::Integer => Some(interner.intern(Name::new("Integer"))?),
+            Self::Boolean => Some(interner.intern(Name::new("Boolean"))?),
+            Self::Bytes => Some(interner.intern(Name::new("Bytes"))?),
             Self::SingleTypeApplication { .. }
             | Self::MultiTypeApplication { .. }
             | Self::ValueApplication { .. } => None,
-        }
+        })
     }
 
     /// The `PascalCase` object name a scalar leaf presents in text (its type name),

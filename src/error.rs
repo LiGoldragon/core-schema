@@ -85,7 +85,7 @@ pub enum TextualError {
     ReifyShape(&'static str),
     #[error("reification met an unknown type name {0:?} that is not a universe type")]
     ReifyUnknownType(String),
-    #[error("the document held {0} root slots, but the six-slot layout requires exactly 6")]
+    #[error("the document held {0} root slots, but the seven-slot layout requires exactly 7")]
     DocumentArity(usize),
     #[error(
         "the document's {0} slot is not the expected shape (a non-empty imports/generics/impls slot is not yet modelled)"

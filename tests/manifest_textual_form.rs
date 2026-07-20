@@ -7,8 +7,8 @@ use name_table::NameTable;
 use raw_discovery::Recognizer;
 use structural_codec::{CanonicalText, ChunkName, TextChunk, TextualForm};
 
-const TYPES: &str = "{}\n[]\n[]\n{\n  Note.String\n}\n{}\n{}";
-const ROOT: &str = "{}\n[Record.Entry]\n[Stored.Entry]\n{\n  Entry.{ Note Integer }\n}\n{}\n{}";
+const TYPES: &str = "{}\n[]\n[]\n{\n  Note.String\n}\n{}\n{}\n[]";
+const ROOT: &str = "{}\n[Record.Entry]\n[Stored.Entry]\n{\n  Entry.{ Note Integer }\n}\n{}\n{}\n[]";
 
 fn path(value: &str) -> ChunkName {
     ChunkName(value.to_owned())

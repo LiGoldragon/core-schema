@@ -2,16 +2,17 @@
 
 ## Status
 
-This is a proposal-branch artifact. It does not change `main`, does not author
-Spirit, and does not access production data. The executable
+This source-surface decision is installed on the integration branch. It does not
+author Spirit or access production data. The executable
 `examples/source_surface_candidates.rs` generated
 `SOURCE_SURFACE_CANDIDATES.md`; each printed block was encoded, recognized,
-decoded, and encoded again through the one sealed `SourceSurfaceCandidates`
-StructureTree. The accompanying integration tests prove the same round trips.
+decoded, and encoded again through one sealed `SourceSurfaceCandidates`
+StructureTree. The real `TextualSchema` document StructureTree now carries the
+same accepted unit-or-one-payload interface alternatives and closed streaming
+relation in its seventh trailing slot; `tests/document_roundtrip.rs` proves the
+installed round trip.
 
-The candidate grammar deliberately covers only the accepted Spirit redesign:
-unit-or-one-payload interface alternatives and the closed streaming relation.
-It does not add a Nomos macro spelling or a general schema-authored Rust
+This work does not add a Nomos macro spelling or a general schema-authored Rust
 implementation language.
 
 ## Codec-emitted candidates
@@ -107,30 +108,24 @@ schema-authored general trait, associated-item, method-body, or implementation-b
 surface is proposed here. Imports needed by a concrete projection are generated from
 the typed component dependency graph, not authored as arbitrary source syntax.
 
-## Decision slate
+## Accepted decisions and remaining gates
 
-1. **Interface candidate — accept?** Adopt the codec-emitted unit-or-one-payload
-   interface-alternative form above in the existing interface positions. It uses the
-   existing optional-payload algebra and one StructureTree. **Recommendation: accept.**
-2. **Streaming placement — accept?** Add one trailing, seventh positional document
-   slot whose expected type is the codec-emitted streaming-relation vector above.
-   It has no section label; the document type and position distinguish it from all
-   ordinary declarations. **Recommendation: accept.**
-3. **Alias admission — accept?** Keep aliases NameTree-only and add a narrow
-   NameTable-boundary alias-admission codec rather than an encoded alias branch.
-   Do not author an alias source spelling until that capability emits and round-trips
-   one artifact. **Recommendation: accept.**
-4. **Imports — accept?** Retain manifest dependency edges as the only import
-   mechanism; do not reopen the old document `imports` slot. **Recommendation: accept.**
-5. **Adapter scope — accept?** Keep generic actor machinery in the shared runtime
-   and omit a general schema-authored implementation-block surface. **Recommendation: accept.**
+1. **Interface alternative:** installed as the codec-emitted unit-or-one-payload
+   form in the ordinary interface positions, using the existing optional-payload
+   encoded algebra and one bidirectional StructureTree.
+2. **Streaming placement:** installed as the trailing seventh positional document
+   slot. Its expected type distinguishes the relation vector from declarations;
+   no section label or Spirit-specific construct was added.
+3. **Alias admission:** aliases remain NameTree-only. `NameTable::add_alias`
+   resolves an additional spelling to the target encoded identifier without adding an
+   encoded alias declaration. A source spelling remains unruled and is not authored.
+4. **Imports:** manifest dependency edges remain the only import mechanism; the old
+   in-document imports slot stays empty.
+5. **Adapter scope:** generic actor machinery remains in shared runtime; no general
+   schema-authored implementation-block surface is added.
 
-## Deferred gates
-
-- NameTable alias admission needs its own codec-backed source and generated-Rust
-  fidelity proof.
-- The accepted streaming relation still needs signal-frame generation and old/new
+- Alias source admission still needs a codec-emitted, round-tripped artifact and a
+  generated-Rust fidelity proof before any spelling is adopted.
+- The installed streaming relation still needs signal-frame generation and old/new
   daemon compatibility evidence.
-- The candidate seventh document slot is not installed in `TextualSchema` until its
-  source-surface ruling is accepted.
 - No macro-definition spelling is described or changed.

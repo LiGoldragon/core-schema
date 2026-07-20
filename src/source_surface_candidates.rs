@@ -1,10 +1,10 @@
-//! Experimental, codec-backed candidates for the remaining schema source surface.
+//! Codec-backed witnesses for the accepted schema source surface.
 //!
-//! This module belongs only to the `ProtosSourceFormsProposal` branch. It is not a
-//! production `TextualSchema` grammar and it does not authorize Spirit source
-//! migration. Its one sealed StructureTree deliberately proves both decode and
-//! emission for the two candidates that can be expressed without inventing a name
-//! carrier: unit-or-one-payload interface variants and closed streaming relations.
+//! This sealed StructureTree proves both directions for unit-or-one-payload interface
+//! variants and closed streaming relations. The installed `TextualSchema` document
+//! grammar carries the same forms; this focused table remains an independently small
+//! round-trip witness. It does not authorize an alias source spelling or Spirit source
+//! migration.
 
 use std::collections::BTreeMap;
 

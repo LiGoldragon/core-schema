@@ -1,4 +1,4 @@
-//! The six-slot document grammar: the universe types and authored `structural-codec`
+//! The seven-slot document grammar: the universe types and authored `structural-codec`
 //! forms that let [`TextualSchema`] decode a whole spirit-min-shaped document —
 //! `imports {} input [] output [] types {} generics {} impls {}` — into a full
 //! [`EncodedSchema`], and encode it back.
@@ -48,8 +48,22 @@ pub const INTERFACE_VARIANT: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(
 pub const INTERFACE: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(105);
 
 /// The number of root slots in the document layout: `imports input output types
-/// generics impls`, in that order.
-pub const DOCUMENT_SLOTS: usize = 6;
+/// generics impls streaming`, in that order. Imports remain manifest dependency
+/// edges; the trailing streaming slot is a typed relation vector.
+pub const DOCUMENT_SLOTS: usize = 7;
+
+/// The first streaming-relation slot: an input-interface variant identifier.
+pub const STREAMING_INPUT_VARIANT_REFERENCE: ScopedEncodedTypeId =
+    ScopedEncodedTypeId::fixture(106);
+/// The second streaming-relation slot: an output-interface variant identifier.
+pub const STREAMING_OUTPUT_VARIANT_REFERENCE: ScopedEncodedTypeId =
+    ScopedEncodedTypeId::fixture(107);
+/// The token, event, and close-token streaming-relation slots.
+pub const STREAMING_REFERENCE: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(108);
+/// One ordered five-position streaming relation.
+pub const STREAMING_RELATION: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(109);
+/// The trailing bracketed vector of streaming relations.
+pub const STREAMING_RELATIONS: ScopedEncodedTypeId = ScopedEncodedTypeId::fixture(110);
 
 /// The disjoint constructors of the [`TYPE_REFERENCE`] grammar type, in the fixed
 /// order the authored table lists them and the reifier reads them. The index of the
@@ -151,6 +165,29 @@ pub enum DeclarationConstructor {
     Enumeration,
 }
 
+/// The two disjoint shapes of one ordered interface alternative. A bare PascalCase
+/// atom is unit; a glued-dot application carries exactly one typed payload.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum InterfaceVariantConstructor {
+    Unit,
+    Payload,
+}
+
+impl InterfaceVariantConstructor {
+    pub const ALL: [Self; 2] = [Self::Unit, Self::Payload];
+
+    pub fn index(self) -> u32 {
+        Self::ALL
+            .iter()
+            .position(|constructor| *constructor == self)
+            .expect("every interface constructor is in ALL") as u32
+    }
+
+    pub fn from_index(index: u32) -> Option<Self> {
+        Self::ALL.get(index as usize).copied()
+    }
+}
+
 impl DeclarationConstructor {
     /// Every declaration constructor, in authored-table order.
     pub const ALL: [Self; 3] = [Self::Newtype, Self::Struct, Self::Enumeration];
@@ -171,7 +208,7 @@ impl DeclarationConstructor {
 
 /// The document grammar as a sealed `structural-codec` table plus the keyword
 /// lexicon its `Literal` forms resolve through. One value drives both decode
-/// (`with_lexicon`) and encode of the six-slot layout.
+/// (`with_lexicon`) and encode of the seven-slot layout.
 #[derive(Clone, Debug)]
 pub struct SchemaDocumentGrammar {
     table: AddressedStructuralTable,
@@ -198,7 +235,7 @@ impl SchemaDocumentGrammar {
             leaf_codec_contracts: Vec::new(),
             entries,
         };
-        let table = AddressedStructuralTable::seal(StructuralRevision::new(1), payload)?;
+        let table = AddressedStructuralTable::seal(StructuralRevision::new(2), payload)?;
         Ok(Self {
             table,
             lexicon: author.into_lexicon(),
@@ -234,7 +271,13 @@ impl DocumentTableAuthor {
 
     /// A `Literal` form matching an interned keyword verbatim.
     fn literal(&mut self, keyword: &str) -> StructuralForm {
-        StructuralForm::Literal(self.lexicon.intern(Name::new(keyword)))
+        // This private grammar author owns an unshared fixed-size lexicon. Public
+        // NameTable mutation remains fallible at the composition boundary.
+        StructuralForm::Literal(
+            self.lexicon
+                .intern(Name::new(keyword))
+                .expect("fixed grammar keyword fits its unborrowed lexicon"),
+        )
     }
 
     /// A single-constructor entry: one disjoint decode form, the same canonical encode
@@ -260,6 +303,11 @@ impl DocumentTableAuthor {
             Self::types_block_entry(),
             Self::interface_variant_entry(),
             Self::interface_entry(),
+            Self::streaming_reference_entry(STREAMING_INPUT_VARIANT_REFERENCE),
+            Self::streaming_reference_entry(STREAMING_OUTPUT_VARIANT_REFERENCE),
+            Self::streaming_reference_entry(STREAMING_REFERENCE),
+            Self::streaming_relation_entry(),
+            Self::streaming_relations_entry(),
         ]
     }
 
@@ -357,24 +405,73 @@ impl DocumentTableAuthor {
         )
     }
 
-    /// One interface entry: `Name.Payload`, the payload a `TypeReference`.
+    /// One interface alternative: either a unit PascalCase atom or a glued-dot
+    /// application carrying one typed payload. The expected `InterfaceVariant`
+    /// position selects this closed two-constructor algebra.
     fn interface_variant_entry() -> StructuralEntry {
-        Self::single(
-            INTERFACE_VARIANT,
-            StructuralForm::application(
-                StructuralForm::pascal_atom(),
-                StructuralForm::Delegate(TYPE_REFERENCE),
-            ),
-        )
+        let unit = StructuralForm::pascal_atom();
+        let payload = StructuralForm::application(
+            StructuralForm::pascal_atom(),
+            StructuralForm::Delegate(TYPE_REFERENCE),
+        );
+        let forms = [unit, payload];
+        let constructors = InterfaceVariantConstructor::ALL
+            .iter()
+            .zip(forms)
+            .map(|(constructor, form)| {
+                ConstructorCodec::new(
+                    EncodedConstructorId::new(INTERFACE_VARIANT, constructor.index()),
+                    vec![form.clone()],
+                    form,
+                    PositionalSignature::default(),
+                )
+            })
+            .collect();
+        StructuralEntry::new(INTERFACE_VARIANT, constructors)
     }
 
-    /// An interface line: a bracket of interface-entry delegates.
+    /// An interface line: a bracket of interface-alternative delegates.
     fn interface_entry() -> StructuralEntry {
         Self::single(
             INTERFACE,
             StructuralForm::Delimited {
                 delimiter: Delimiter::SquareBracket,
                 sequence: SequenceForm::zero_or_more(StructuralForm::Delegate(INTERFACE_VARIANT)),
+            },
+        )
+    }
+
+    /// A streaming relation reference has one PascalCase-atom form; its enclosing
+    /// typed position gives it input, output, token, event, or close-token meaning.
+    fn streaming_reference_entry(core_type: ScopedEncodedTypeId) -> StructuralEntry {
+        Self::single(core_type, StructuralForm::pascal_atom())
+    }
+
+    /// One closed streaming relation: opener, acknowledgement, token, event, close
+    /// token. The five meanings come only from their ordered expected types.
+    fn streaming_relation_entry() -> StructuralEntry {
+        Self::single(
+            STREAMING_RELATION,
+            StructuralForm::Delimited {
+                delimiter: Delimiter::Brace,
+                sequence: SequenceForm::Product(vec![
+                    StructuralForm::Delegate(STREAMING_INPUT_VARIANT_REFERENCE),
+                    StructuralForm::Delegate(STREAMING_OUTPUT_VARIANT_REFERENCE),
+                    StructuralForm::Delegate(STREAMING_REFERENCE),
+                    StructuralForm::Delegate(STREAMING_REFERENCE),
+                    StructuralForm::Delegate(STREAMING_REFERENCE),
+                ]),
+            },
+        )
+    }
+
+    /// The trailing document slot is a homogeneous vector of closed relations.
+    fn streaming_relations_entry() -> StructuralEntry {
+        Self::single(
+            STREAMING_RELATIONS,
+            StructuralForm::Delimited {
+                delimiter: Delimiter::SquareBracket,
+                sequence: SequenceForm::zero_or_more(StructuralForm::Delegate(STREAMING_RELATION)),
             },
         )
     }

@@ -1,9 +1,9 @@
-//! Codec-backed candidates only: these forms are emitted, recognized, decoded, and
-//! emitted again by one experimental StructureTree on the proposal branch.
+//! Codec-backed witnesses: these forms are emitted, recognized, decoded, and emitted
+//! again by one sealed StructureTree that matches the installed document surface.
 
 use core_schema::{
     EncodedReference, EncodedVariant, StreamingRelation,
-    source_surface_proposal::SourceSurfaceCandidates,
+    source_surface_candidates::SourceSurfaceCandidates,
 };
 use name_table::{IdentifierNamespace, Name, NameTable};
 
@@ -11,9 +11,11 @@ use name_table::{IdentifierNamespace, Name, NameTable};
 fn interface_unit_and_payload_candidates_round_trip_through_one_structure_tree() {
     let candidates = SourceSurfaceCandidates::build().unwrap();
     let mut names = NameTable::new(IdentifierNamespace::Schema);
-    let closed = names.intern(Name::new("Closed"));
-    let opened = names.intern(Name::new("Opened"));
-    let token = names.intern(Name::new("SubscriptionToken"));
+    let closed = names.intern(Name::new("Closed")).expect("allocate Closed");
+    let opened = names.intern(Name::new("Opened")).expect("allocate Opened");
+    let token = names
+        .intern(Name::new("SubscriptionToken"))
+        .expect("allocate SubscriptionToken");
     let encoded = vec![
         EncodedVariant::new(closed, None),
         EncodedVariant::new(opened, Some(EncodedReference::Plain(token))),
@@ -34,11 +36,21 @@ fn interface_unit_and_payload_candidates_round_trip_through_one_structure_tree()
 fn closed_streaming_relation_candidate_round_trips_through_one_structure_tree() {
     let candidates = SourceSurfaceCandidates::build().unwrap();
     let mut names = NameTable::new(IdentifierNamespace::Schema);
-    let opening = names.intern(Name::new("OpenSubscription"));
-    let acknowledgement = names.intern(Name::new("SubscriptionOpened"));
-    let token = names.intern(Name::new("SubscriptionToken"));
-    let event = names.intern(Name::new("IntentEvent"));
-    let close_token = names.intern(Name::new("CloseSubscription"));
+    let opening = names
+        .intern(Name::new("OpenSubscription"))
+        .expect("allocate OpenSubscription");
+    let acknowledgement = names
+        .intern(Name::new("SubscriptionOpened"))
+        .expect("allocate SubscriptionOpened");
+    let token = names
+        .intern(Name::new("SubscriptionToken"))
+        .expect("allocate SubscriptionToken");
+    let event = names
+        .intern(Name::new("IntentEvent"))
+        .expect("allocate IntentEvent");
+    let close_token = names
+        .intern(Name::new("CloseSubscription"))
+        .expect("allocate CloseSubscription");
     let encoded = vec![StreamingRelation::new(
         opening,
         acknowledgement,

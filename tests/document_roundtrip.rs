@@ -1,4 +1,4 @@
-//! The six-slot document layout: a whole spirit-min-shaped document decodes to a
+//! The seven-slot document layout: a whole spirit-min-shaped document decodes to a
 //! full `EncodedSchema` — every type declaration, both enumerations, the `Vector`
 //! reference projections, and both interface lines — and encodes back to stable
 //! canonical text. Identifier binding through a central authority (content-hash
@@ -13,7 +13,7 @@ use raw_discovery::Recognizer;
 use structural_codec::CanonicalText;
 
 /// The spirit-min schema in core-schema's native dialect: its shape verbatim — the
-/// six root slots, the type declarations, both enumerations, the `Vector`
+/// seven root slots, the type declarations, both enumerations, the `Vector`
 /// projections, and the two interface lines — with the string scalar spelled
 /// `String`, its canonical spelling under the 2026-07-17 ruling ("Strings are
 /// Strings"), exactly as spirit-min writes it.
@@ -37,7 +37,8 @@ const SPIRIT_MIN: &str = "\
   Magnitude.[Minimum VeryLow Low Medium High VeryHigh Maximum]
 }
 {}
-{}";
+{}
+[]";
 
 fn text(names: &NameTable, identifier: Identifier) -> &str {
     names
@@ -258,9 +259,9 @@ fn spirit_min_document_round_trips_to_stable_text() {
     let round_tripped = Recognizer::standard()
         .recognize(&encoded)
         .expect("recognize the encoded document");
-    assert_eq!(source.holds_root_objects(), 6);
-    assert_eq!(round_tripped.holds_root_objects(), 6);
-    for slot in 0..6 {
+    assert_eq!(source.holds_root_objects(), 7);
+    assert_eq!(round_tripped.holds_root_objects(), 7);
+    for slot in 0..7 {
         assert_eq!(
             round_tripped.root_object_at(slot).unwrap().canonical_text(),
             source.root_object_at(slot).unwrap().canonical_text(),
@@ -286,7 +287,8 @@ const RULING_MIN: &str = "\
   Entry.{ String Note }
 }
 {}
-{}";
+{}
+[]";
 
 #[test]
 fn string_scalar_and_single_field_brace_follow_the_rulings() {
@@ -338,4 +340,55 @@ fn string_scalar_and_single_field_brace_follow_the_rulings() {
     assert!(
         matches!(entry_fields[1].1, EncodedReference::Plain(id) if text(&names, *id) == "Note")
     );
+}
+
+/// Both nonempty source additions are copied verbatim from the codec-emitted
+/// `SOURCE_SURFACE_CANDIDATES.md` artifact. This test seats those same structures in
+/// the one real document StructureTree rather than maintaining a proposal-only path.
+const STREAMING_DOCUMENT: &str = "\
+{}
+[Closed Opened.SubscriptionToken]
+[]
+{}
+{}
+{}
+[{OpenSubscription SubscriptionOpened SubscriptionToken IntentEvent CloseSubscription}]";
+
+#[test]
+fn accepted_interface_and_streaming_forms_round_trip_in_the_document_structure_tree() {
+    let textual = TextualSchema::schema_document().expect("build the document grammar");
+    let mut names = NameTable::new(name_table::IdentifierNamespace::Schema);
+    let schema = textual
+        .decode_document(STREAMING_DOCUMENT, &mut names)
+        .expect("decode codec-emitted source forms");
+
+    let input = schema.input().expect("input interface root");
+    let EncodedType::Enumeration(input) = input.value() else {
+        panic!("input root is an enumeration");
+    };
+    assert!(input.variants()[0].payload().is_none(), "Closed is unit");
+    assert!(
+        matches!(input.variants()[1].payload(), Some(EncodedReference::Plain(identifier)) if text(&names, *identifier) == "SubscriptionToken"),
+        "Opened carries exactly SubscriptionToken",
+    );
+    assert_eq!(schema.streaming_relations().len(), 1);
+    assert_eq!(
+        text(
+            &names,
+            schema.streaming_relations()[0].opening_input_variant(),
+        ),
+        "OpenSubscription",
+    );
+    assert_eq!(
+        text(
+            &names,
+            schema.streaming_relations()[0].acknowledgement_output_variant(),
+        ),
+        "SubscriptionOpened",
+    );
+
+    let emitted = textual
+        .encode_document(&schema, &mut names)
+        .expect("emit accepted source forms");
+    assert_eq!(emitted, STREAMING_DOCUMENT);
 }

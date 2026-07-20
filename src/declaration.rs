@@ -35,7 +35,8 @@ impl HashDomain for EncodedSchemaDomain {
 /// their [`DeclarationRole`]. Names live in the accompanying `NameTable` produced
 /// by the same decode.
 ///
-/// The six-slot document layout (imports, input, output, types, generics, impls)
+/// The seven-slot document layout (imports, input, output, types, generics, impls,
+/// streaming)
 /// lands its `types` block and both interface brackets in the SAME
 /// [`declarations`](Self::declarations) list: an `input` / `output` bracket becomes
 /// a public enumeration declaration whose variants are the bracket's `Name.Payload`
@@ -470,7 +471,7 @@ impl EncodedField {
         Canonical: NameInterner + ?Sized,
     {
         let name = source.resolve(self.identifier)?.clone();
-        let identifier = canonical.intern(name);
+        let identifier = canonical.intern(name)?;
         Ok(Self::new(
             identifier,
             self.reference.restamp(source, canonical)?,
@@ -553,7 +554,7 @@ impl EncodedVariant {
         Canonical: NameInterner + ?Sized,
     {
         let name = source.resolve(self.identifier)?.clone();
-        let identifier = canonical.intern(name);
+        let identifier = canonical.intern(name)?;
         let payload = match &self.payload {
             Some(reference) => Some(reference.restamp(source, canonical)?),
             None => None,
