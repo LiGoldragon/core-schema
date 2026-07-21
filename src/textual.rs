@@ -806,13 +806,13 @@ impl TextualSchema {
     }
 }
 
-/// `TextualSchema` is the REFERENCE instance of the shared [`TextualForm`](structural_codec::TextualForm) operation:
-/// the two organs are its authored structural table (the structuretree) and the
-/// caller's `NameTable` (the nametree), and its EncodedForm is a `EncodedType`
-/// declaration. The provided `view` / `unview` reproduce this crate's own
-/// single-declaration `encode` / `decode` exactly — the operation was generalized OUT
-/// of schema, not bolted on — so schema's existing behavior proves the shared shape
-/// fits with no change (witnessed by `tests/textual_form.rs`).
+/// `TextualSchema` is the reference instance of the shared textual interface,
+/// [`TextualForm`](structural_codec::TextualForm). Its structuretree is the authored
+/// structural table; its nametree is the caller's `NameTable`; and its EncodedForm is
+/// an `EncodedType` declaration. The provided `view` / `unview` reproduce this crate's
+/// single-declaration `encode` / `decode` exactly — the interface was generalized out
+/// of schema, not bolted on — so existing behavior proves the shared view fits without
+/// change (witnessed by `tests/textual_form.rs`).
 impl Textual for TextualSchema {
     type Encoded = EncodedType;
     type Language = SchemaLanguage;
@@ -852,15 +852,15 @@ impl Textual for TextualSchema {
 }
 
 /// The schema language identity — the `T` shared by schema's truth side
-/// ([`EncodedForm`] for [`EncodedSchema`]), its view side ([`Textual`] for
-/// [`TextualSchema`] producing a `TextualForm<SchemaLanguage>`), and any conversion off
-/// the schema layer. A stringless marker; it carries no runtime value.
+/// ([`EncodedForm`] for [`EncodedSchema`]), its textual interface side ([`Textual`] for
+/// [`TextualSchema`] producing a `TextualForm<SchemaLanguage>` value type), and any
+/// conversion off the schema layer. A stringless marker; it carries no runtime value.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SchemaLanguage;
 
 /// [`EncodedSchema`] is the reference [`EncodedForm`] of the Protos pairing: the whole-
-/// language stringless truth a [`Textual`] mouth views and an `EncodedConversion` (the
-/// schema→logos lowering in `core-nomos`) moves. Its language identity is
+/// language stringless truth a [`Textual`] interface views and an `EncodedConversion`
+/// (the schema→logos lowering in `core-nomos`) moves. Its language identity is
 /// [`SchemaLanguage`].
 impl EncodedForm for EncodedSchema {
     type Language = SchemaLanguage;

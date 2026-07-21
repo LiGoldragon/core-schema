@@ -88,7 +88,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "content-identity"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "blake3",
  "rkyv",
@@ -209,7 +209,7 @@ dependencies = [
 [[package]]
 name = "name-table"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "content-identity",
  "rkyv",
@@ -278,7 +278,7 @@ dependencies = [
 [[package]]
 name = "raw-discovery"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "content-identity",
  "rkyv",
@@ -351,7 +351,7 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 [[package]]
 name = "structural-codec"
 version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "content-identity",
  "name-table",
@@ -363,7 +363,7 @@ dependencies = [
 [[package]]
 name = "structural-codec-derive"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -373,7 +373,7 @@ dependencies = [
 [[package]]
 name = "structural-codec-derive-fixtures"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=b69cd8075eb2fc6563e5331878597c6878753295#b69cd8075eb2fc6563e5331878597c6878753295"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
 dependencies = [
  "name-table",
  "raw-discovery",
