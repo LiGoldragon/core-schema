@@ -1,8 +1,8 @@
 # core-schema
 
-`core-schema` owns the stringless **Core** schema layer and its bidirectional
-`TextualSchema` view. The public API remains `Core*` throughout this S1 slicing
-step; the immediately following rename train will rename that API separately.
+`core-schema` owns the stringless **Encoded** schema layer and its bidirectional
+`TextualSchema` view. Its public model surface uses `Encoded*` names with no legacy
+aliases or compatibility bridges.
 
 ## S1 slicing
 
@@ -15,18 +15,18 @@ step; the immediately following rename train will rename that API separately.
   flattening, renumbering, or legacy fallback behavior.
 - The existing positional field-name ban remains: fields are bare type references
   and equal field types are distinguished only by their position.
-- `CoreSchema` keeps ordered interface alternatives and carries closed
+- `EncodedSchema` keeps ordered interface alternatives and carries closed
   `StreamingRelation` data without source-spelling or alias surfaces.
 
 The universe bridge continues to derive positional constructor signatures from
-Core layouts and validates authored structural tables against those signatures.
-Names remain outside Core content identity, so a name-table change cannot alter a
-Core value's content hash.
+Encoded layouts and validates authored structural tables against those signatures.
+Names remain outside Encoded content identity, so a name-table change cannot alter
+an Encoded value's content hash.
 
 ## Dependency pin
 
 All Protos machinery crates resolve at immutable pushed revision
-`290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4`. Cargo.lock records the same revision;
+`b69cd8075eb2fc6563e5331878597c6878753295`. Cargo.lock records the same revision;
 the Nix build consumes that lockfile.
 
 ## Build and test

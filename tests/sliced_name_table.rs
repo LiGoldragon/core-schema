@@ -1,4 +1,4 @@
-//! Core-schema consumes namespace-sliced name tables without flattening or
+//! Encoded-schema consumes namespace-sliced name tables without flattening or
 //! renumbering a completed foreign slice.
 
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};

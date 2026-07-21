@@ -1,13 +1,13 @@
 //! The six-slot document layout: a whole spirit-min-shaped document decodes to a
-//! full `CoreSchema` — every type declaration, both enumerations, the `Vector`
+//! full `EncodedSchema` — every type declaration, both enumerations, the `Vector`
 //! reference projections, and both interface lines — and encodes back to stable
 //! canonical text. Identifier binding through a central authority (content-hash
 //! equality across front-ends) is a SEPARATE queued slice and is deliberately NOT
 //! asserted here; this proves the native surface represents the accepted grammar.
 
-use core_schema::declaration::CoreType;
-use core_schema::reference::{CoreReference, SingleTypeReferenceProjection};
-use core_schema::{CoreDeclaration, TextualSchema};
+use core_schema::declaration::EncodedType;
+use core_schema::reference::{EncodedReference, SingleTypeReferenceProjection};
+use core_schema::{EncodedDeclaration, TextualSchema};
 use name_table::{Identifier, IdentifierNamespace, NameTable};
 use raw_discovery::Recognizer;
 use structural_codec::CanonicalText;
@@ -47,13 +47,13 @@ fn text(names: &NameTable, identifier: Identifier) -> &str {
 }
 
 fn declaration<'schema>(
-    declarations: &'schema [CoreDeclaration],
+    declarations: &'schema [EncodedDeclaration],
     names: &NameTable,
     wanted: &str,
-) -> &'schema CoreType {
+) -> &'schema EncodedType {
     declarations
         .iter()
-        .map(CoreDeclaration::value)
+        .map(EncodedDeclaration::value)
         .find(|value| text(names, value.identifier()) == wanted)
         .unwrap_or_else(|| panic!("declaration {wanted} is present"))
 }
@@ -80,12 +80,12 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
         15,
         "the substrate holds the data declarations and both interface roots"
     );
-    let CoreType::Enumeration(input_root) =
+    let EncodedType::Enumeration(input_root) =
         schema.input().expect("an input interface root").value()
     else {
         panic!("the input interface root is an enumeration");
     };
-    let CoreType::Enumeration(output_root) =
+    let EncodedType::Enumeration(output_root) =
         schema.output().expect("an output interface root").value()
     else {
         panic!("the output interface root is an enumeration");
@@ -104,31 +104,31 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
     );
 
     // A newtype over a Plain declared type.
-    let CoreType::Newtype(record_payload) =
+    let EncodedType::Newtype(record_payload) =
         declaration(schema.declarations(), &names, "RecordPayload")
     else {
         panic!("RecordPayload is a newtype");
     };
     assert!(
-        matches!(record_payload.reference(), CoreReference::Plain(id) if text(&names, *id) == "Entry"),
+        matches!(record_payload.reference(), EncodedReference::Plain(id) if text(&names, *id) == "Entry"),
         "RecordPayload wraps Plain(Entry)",
     );
 
     // A newtype over the string scalar leaf.
-    let CoreType::Newtype(topic) = declaration(schema.declarations(), &names, "Topic") else {
+    let EncodedType::Newtype(topic) = declaration(schema.declarations(), &names, "Topic") else {
         panic!("Topic is a newtype");
     };
     assert_eq!(
         topic.reference(),
-        &CoreReference::String,
+        &EncodedReference::String,
         "Topic wraps the string leaf"
     );
 
     // A newtype over a single-type Vector projection of a Plain type.
-    let CoreType::Newtype(topics) = declaration(schema.declarations(), &names, "Topics") else {
+    let EncodedType::Newtype(topics) = declaration(schema.declarations(), &names, "Topics") else {
         panic!("Topics is a newtype");
     };
-    let CoreReference::SingleTypeApplication {
+    let EncodedReference::SingleTypeApplication {
         projection,
         argument,
     } = topics.reference()
@@ -140,16 +140,16 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
     };
     assert_eq!(*projection, SingleTypeReferenceProjection::Vector);
     assert!(
-        matches!(argument.as_ref(), CoreReference::Plain(id) if text(&names, *id) == "Topic"),
+        matches!(argument.as_ref(), EncodedReference::Plain(id) if text(&names, *id) == "Topic"),
         "Topics = Vector.Topic",
     );
 
     // A Vector projection over a struct type: RecordSet = Vector.Entry.
-    let CoreType::Newtype(record_set) = declaration(schema.declarations(), &names, "RecordSet")
+    let EncodedType::Newtype(record_set) = declaration(schema.declarations(), &names, "RecordSet")
     else {
         panic!("RecordSet is a newtype");
     };
-    let CoreReference::SingleTypeApplication {
+    let EncodedReference::SingleTypeApplication {
         projection,
         argument,
     } = record_set.reference()
@@ -157,10 +157,12 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
         panic!("RecordSet wraps a single-type application");
     };
     assert_eq!(*projection, SingleTypeReferenceProjection::Vector);
-    assert!(matches!(argument.as_ref(), CoreReference::Plain(id) if text(&names, *id) == "Entry"));
+    assert!(
+        matches!(argument.as_ref(), EncodedReference::Plain(id) if text(&names, *id) == "Entry")
+    );
 
     // A struct: four fields whose elided names are derived from their types.
-    let CoreType::Struct(entry) = declaration(schema.declarations(), &names, "Entry") else {
+    let EncodedType::Struct(entry) = declaration(schema.declarations(), &names, "Entry") else {
         panic!("Entry is a struct");
     };
     let entry_fields: Vec<&str> = entry
@@ -174,7 +176,7 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
     );
 
     // The two enumerations, with their unit variants in order.
-    let CoreType::Enumeration(kind) = declaration(schema.declarations(), &names, "Kind") else {
+    let EncodedType::Enumeration(kind) = declaration(schema.declarations(), &names, "Kind") else {
         panic!("Kind is an enumeration");
     };
     let kind_variants: Vec<&str> = kind
@@ -199,7 +201,8 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
         "Kind's variants are unit variants",
     );
 
-    let CoreType::Enumeration(magnitude) = declaration(schema.declarations(), &names, "Magnitude")
+    let EncodedType::Enumeration(magnitude) =
+        declaration(schema.declarations(), &names, "Magnitude")
     else {
         panic!("Magnitude is an enumeration");
     };
@@ -213,19 +216,19 @@ fn spirit_min_document_decodes_to_the_full_core_schema() {
     let record = &input_root.variants()[0];
     assert_eq!(text(&names, record.identifier()), "Record");
     assert!(
-        matches!(record.payload(), Some(CoreReference::Plain(id)) if text(&names, *id) == "RecordPayload"),
+        matches!(record.payload(), Some(EncodedReference::Plain(id)) if text(&names, *id) == "RecordPayload"),
         "input binds Record.RecordPayload",
     );
     let record_accepted = &output_root.variants()[0];
     assert_eq!(text(&names, record_accepted.identifier()), "RecordAccepted");
     assert!(
-        matches!(record_accepted.payload(), Some(CoreReference::Plain(id)) if text(&names, *id) == "RecordAcceptedPayload"),
+        matches!(record_accepted.payload(), Some(EncodedReference::Plain(id)) if text(&names, *id) == "RecordAcceptedPayload"),
         "output binds RecordAccepted.RecordAcceptedPayload",
     );
 }
 
 /// Encode is a genuine inverse of decode: re-decoding the encoded document yields an
-/// equal `CoreSchema`, and every root slot's canonical text is stable against the
+/// equal `EncodedSchema`, and every root slot's canonical text is stable against the
 /// source.
 #[test]
 fn spirit_min_document_round_trips_to_stable_text() {
@@ -246,7 +249,7 @@ fn spirit_min_document_round_trips_to_stable_text() {
         .expect("re-decode the encoded document");
     assert_eq!(
         schema, redecoded,
-        "the document round-trips to an equal CoreSchema"
+        "the document round-trips to an equal EncodedSchema"
     );
 
     let source = Recognizer::standard()
@@ -295,32 +298,33 @@ fn string_scalar_and_single_field_brace_follow_the_rulings() {
 
     // Ruling 1: `Note.String` is a newtype over the string SCALAR leaf, not a Plain
     // reference to a user type named `String`.
-    let CoreType::Newtype(note) = declaration(schema.declarations(), &names, "Note") else {
+    let EncodedType::Newtype(note) = declaration(schema.declarations(), &names, "Note") else {
         panic!("Note is a newtype");
     };
     assert_eq!(
         note.reference(),
-        &CoreReference::String,
+        &EncodedReference::String,
         "Note wraps the string scalar leaf",
     );
 
     // Ruling 2: `Summary.{ Note }` — a single-field braced body — lowers to a newtype
     // over the field's reference, the name `Note` dropped.
-    let CoreType::Newtype(summary) = declaration(schema.declarations(), &names, "Summary") else {
+    let EncodedType::Newtype(summary) = declaration(schema.declarations(), &names, "Summary")
+    else {
         panic!("Summary is a newtype (single-field brace collapses)");
     };
     assert!(
-        matches!(summary.reference(), CoreReference::Plain(id) if text(&names, *id) == "Note"),
+        matches!(summary.reference(), EncodedReference::Plain(id) if text(&names, *id) == "Note"),
         "Summary wraps Plain(Note), got {:?}",
         summary.reference(),
     );
 
     // Ruling 1, field position: an elided `String` field recognizes the scalar and
     // derives the name `string`.
-    let CoreType::Struct(entry) = declaration(schema.declarations(), &names, "Entry") else {
+    let EncodedType::Struct(entry) = declaration(schema.declarations(), &names, "Entry") else {
         panic!("Entry is a struct (two fields)");
     };
-    let entry_fields: Vec<(&str, &CoreReference)> = entry
+    let entry_fields: Vec<(&str, &EncodedReference)> = entry
         .fields()
         .iter()
         .map(|field| (text(&names, field.identifier()), field.reference()))
@@ -329,7 +333,9 @@ fn string_scalar_and_single_field_brace_follow_the_rulings() {
         entry_fields[0].0, "string",
         "an elided String field derives `string`"
     );
-    assert_eq!(entry_fields[0].1, &CoreReference::String);
+    assert_eq!(entry_fields[0].1, &EncodedReference::String);
     assert_eq!(entry_fields[1].0, "note");
-    assert!(matches!(entry_fields[1].1, CoreReference::Plain(id) if text(&names, *id) == "Note"));
+    assert!(
+        matches!(entry_fields[1].1, EncodedReference::Plain(id) if text(&names, *id) == "Note")
+    );
 }

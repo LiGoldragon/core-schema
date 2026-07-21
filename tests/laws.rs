@@ -1,9 +1,9 @@
-//! The four conformance laws, re-proven with the real `CoreSchema` universe.
+//! The four conformance laws, re-proven with the real `EncodedSchema` universe.
 
 use core_schema::fixture::{COMMIT_SEQUENCE, DOCUMENTATION, FIELD, FLOAT, FixtureFamily};
 use name_table::{IdentifierNamespace, Name, NameTable};
 use raw_discovery::{Block, Delimiter, Recognizer};
-use structural_codec::ids::ScopedCoreTypeId;
+use structural_codec::ids::ScopedEncodedTypeId;
 use structural_codec::table::AddressedStructuralTable;
 use structural_codec::{CanonicalText, StructuralEvaluator};
 
@@ -19,7 +19,7 @@ fn recognize_single(source: &str) -> Block {
 fn standard_table() -> AddressedStructuralTable {
     FixtureFamily::build()
         .standard_table()
-        .expect("seal real-Core table")
+        .expect("seal real-Encoded table")
 }
 
 #[test]
@@ -33,7 +33,7 @@ fn the_table_agrees_with_the_core_layout() {
 fn law_one_round_trip_core() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
-    let cases: &[(ScopedCoreTypeId, &str)] = &[
+    let cases: &[(ScopedEncodedTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
         (FIELD, "Integer"),
         (DOCUMENTATION, "alpha.beta.gamma"),
@@ -60,7 +60,7 @@ fn law_one_round_trip_core() {
 fn law_two_round_trip_canonical() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
-    let cases: &[(ScopedCoreTypeId, &str)] = &[
+    let cases: &[(ScopedEncodedTypeId, &str)] = &[
         (COMMIT_SEQUENCE, "CommitSequence.{ Integer }"),
         (FIELD, "Integer"),
         (DOCUMENTATION, "alpha.beta.gamma"),

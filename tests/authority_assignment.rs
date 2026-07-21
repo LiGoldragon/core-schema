@@ -2,13 +2,14 @@
 //! encoded identifier. The bridge never resolves a name merely to re-intern it into
 //! another namespace.
 
-use core_schema::declaration::{CoreField, CoreStruct, CoreType};
+use core_schema::declaration::{EncodedField, EncodedStruct, EncodedType};
 use core_schema::{
-    AssignedKind, AssignedMember, CoreDeclaration, CoreNewtype, CoreReference, CoreUniverse,
-    CoreUniverseBuilder, ScalarSlot, SingleTypeReferenceProjection, UniverseError,
+    AssignedKind, AssignedMember, EncodedDeclaration, EncodedNewtype, EncodedReference,
+    EncodedUniverse, EncodedUniverseBuilder, ScalarSlot, SingleTypeReferenceProjection,
+    UniverseError,
 };
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
-use structural_codec::ids::{CoreUniverseId, ScopedCoreTypeId};
+use structural_codec::ids::{EncodedUniverseId, ScopedEncodedTypeId};
 
 fn schema_table(names: &[&str]) -> (NameTable, Vec<Identifier>) {
     let mut table = NameTable::new(IdentifierNamespace::Schema);
@@ -28,17 +29,17 @@ fn authority_assignment_preserves_schema_identifiers_and_complete_table() {
     let [record, label, target, integer] = identifiers.as_slice() else {
         panic!("fixture identifiers")
     };
-    let declaration = CoreDeclaration::public(CoreType::Struct(CoreStruct::new(
+    let declaration = EncodedDeclaration::public(EncodedType::Struct(EncodedStruct::new(
         *record,
-        vec![CoreField::new(*label, CoreReference::Plain(*target))],
+        vec![EncodedField::new(*label, EncodedReference::Plain(*target))],
     )));
-    let target_declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+    let target_declaration = EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
         *target,
-        CoreReference::Integer,
+        EncodedReference::Integer,
     )));
 
-    let universe = CoreUniverse::from_assignment(
-        CoreUniverseId::new(42),
+    let universe = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(42),
         vec![
             AssignedMember::new(9, *target, AssignedKind::Declaration(target_declaration)),
             AssignedMember::new(3, *record, AssignedKind::Declaration(declaration.clone())),
@@ -53,8 +54,8 @@ fn authority_assignment_preserves_schema_identifiers_and_complete_table() {
     .expect("Schema-home assignment is accepted");
 
     let stored = universe
-        .core_type(structural_codec::ids::ScopedCoreTypeId::new(
-            CoreUniverseId::new(42),
+        .encoded_type(structural_codec::ids::ScopedEncodedTypeId::new(
+            EncodedUniverseId::new(42),
             3,
         ))
         .expect("record declaration");
@@ -71,7 +72,7 @@ fn authority_assignment_preserves_schema_identifiers_and_complete_table() {
 }
 
 /// A completed foreign slice remains borrowed by the moved Schema-home table; it is
-/// not copied, flattened, or renumbered while the CoreSchema member retains its own
+/// not copied, flattened, or renumbered while the EncodedSchema member retains its own
 /// Schema identifier.
 #[test]
 fn assignment_transfers_complete_composed_name_table() {
@@ -82,14 +83,14 @@ fn assignment_transfers_complete_composed_name_table() {
     let integer = schema.intern(Name::new("Integer")).expect("fixture fits");
     let composed = schema.compose(&logos).expect("borrow Logos slice");
 
-    let universe = CoreUniverse::from_assignment(
-        CoreUniverseId::new(43),
+    let universe = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(43),
         vec![
             AssignedMember::new(
                 0,
                 record,
-                AssignedKind::Declaration(CoreDeclaration::public(CoreType::Newtype(
-                    CoreNewtype::new(record, CoreReference::Integer),
+                AssignedKind::Declaration(EncodedDeclaration::public(EncodedType::Newtype(
+                    EncodedNewtype::new(record, EncodedReference::Integer),
                 ))),
             ),
             AssignedMember::new(
@@ -120,12 +121,12 @@ fn logos_identifier_is_never_silently_converted_to_schema() {
 
     let schema = NameTable::new(IdentifierNamespace::Schema);
     let composed = schema.compose(&logos).expect("borrow Logos slice");
-    let declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+    let declaration = EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
         logos_record,
-        CoreReference::Integer,
+        EncodedReference::Integer,
     )));
-    let error = CoreUniverse::from_assignment(
-        CoreUniverseId::new(101),
+    let error = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(101),
         vec![AssignedMember::new(
             0,
             logos_record,
@@ -133,7 +134,7 @@ fn logos_identifier_is_never_silently_converted_to_schema() {
         )],
         composed,
     )
-    .expect_err("foreign Core identifier is rejected");
+    .expect_err("foreign Encoded identifier is rejected");
 
     assert!(matches!(
         error,
@@ -145,8 +146,8 @@ fn logos_identifier_is_never_silently_converted_to_schema() {
 fn non_schema_name_table_home_is_rejected() {
     let mut logos = NameTable::new(IdentifierNamespace::Logos);
     let identifier = logos.intern(Name::new("Record")).expect("fixture fits");
-    let error = CoreUniverse::from_assignment(
-        CoreUniverseId::new(7),
+    let error = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(7),
         vec![AssignedMember::new(
             0,
             identifier,
@@ -154,7 +155,7 @@ fn non_schema_name_table_home_is_rejected() {
         )],
         logos,
     )
-    .expect_err("CoreSchema owns a Schema-home table");
+    .expect_err("EncodedSchema owns a Schema-home table");
     assert!(matches!(
         error,
         UniverseError::WrongNameTableHome {
@@ -166,13 +167,13 @@ fn non_schema_name_table_home_is_rejected() {
 #[test]
 fn declaration_identifier_must_match_assigned_identifier() {
     let (names, identifiers) = schema_table(&["Assigned", "Stored"]);
-    let error = CoreUniverse::from_assignment(
-        CoreUniverseId::new(7),
+    let error = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(7),
         vec![AssignedMember::new(
             0,
             identifiers[0],
-            AssignedKind::Declaration(CoreDeclaration::public(CoreType::Newtype(
-                CoreNewtype::new(identifiers[1], CoreReference::Integer),
+            AssignedKind::Declaration(EncodedDeclaration::public(EncodedType::Newtype(
+                EncodedNewtype::new(identifiers[1], EncodedReference::Integer),
             ))),
         )],
         names,
@@ -187,8 +188,8 @@ fn declaration_identifier_must_match_assigned_identifier() {
 #[test]
 fn duplicate_assigned_identity_is_rejected() {
     let (names, identifiers) = schema_table(&["Alpha", "Beta"]);
-    let clash = CoreUniverse::from_assignment(
-        CoreUniverseId::new(7),
+    let clash = EncodedUniverse::from_assignment(
+        EncodedUniverseId::new(7),
         vec![
             AssignedMember::new(3, identifiers[0], AssignedKind::LeafPrimitive),
             AssignedMember::new(3, identifiers[1], AssignedKind::LeafPrimitive),
@@ -197,7 +198,7 @@ fn duplicate_assigned_identity_is_rejected() {
     );
     assert!(matches!(
         clash,
-        Err(UniverseError::DuplicateMemberIdentity(id)) if id == ScopedCoreTypeId::new(CoreUniverseId::new(7), 3)
+        Err(UniverseError::DuplicateMemberIdentity(id)) if id == ScopedEncodedTypeId::new(EncodedUniverseId::new(7), 3)
     ));
 }
 
@@ -207,8 +208,8 @@ fn duplicate_assigned_identity_is_rejected() {
 #[test]
 fn direct_builder_seal_rejects_wrong_home_foreign_unresolved_and_duplicate_members() {
     let wrong_home =
-        CoreUniverseBuilder::from_name_table(NameTable::new(IdentifierNamespace::Logos))
-            .build(CoreUniverseId::new(8));
+        EncodedUniverseBuilder::from_name_table(NameTable::new(IdentifierNamespace::Logos))
+            .build(EncodedUniverseId::new(8));
     assert!(matches!(
         wrong_home,
         Err(UniverseError::WrongNameTableHome {
@@ -216,55 +217,61 @@ fn direct_builder_seal_rejects_wrong_home_foreign_unresolved_and_duplicate_membe
         })
     ));
 
-    let mut foreign_builder = CoreUniverseBuilder::new();
+    let mut foreign_builder = EncodedUniverseBuilder::new();
     foreign_builder.primitive_at(
-        ScopedCoreTypeId::new(CoreUniverseId::new(8), 0),
+        ScopedEncodedTypeId::new(EncodedUniverseId::new(8), 0),
         Identifier::Logos(0),
         ScalarSlot::Integer,
     );
     assert!(matches!(
-        foreign_builder.build(CoreUniverseId::new(8)),
+        foreign_builder.build(EncodedUniverseId::new(8)),
         Err(UniverseError::WrongSchemaIdentifier(Identifier::Logos(0)))
     ));
 
-    let mut unresolved_builder = CoreUniverseBuilder::new();
+    let mut unresolved_builder = EncodedUniverseBuilder::new();
     unresolved_builder.leaf_at(
-        ScopedCoreTypeId::new(CoreUniverseId::new(8), 0),
+        ScopedEncodedTypeId::new(EncodedUniverseId::new(8), 0),
         Identifier::Schema(99),
     );
     assert!(matches!(
-        unresolved_builder.build(CoreUniverseId::new(8)),
+        unresolved_builder.build(EncodedUniverseId::new(8)),
         Err(UniverseError::Names(_))
     ));
 
-    let mut duplicate_id_builder = CoreUniverseBuilder::new();
+    let mut duplicate_id_builder = EncodedUniverseBuilder::new();
     let alpha = duplicate_id_builder.intern("Alpha").unwrap();
     let beta = duplicate_id_builder.intern("Beta").unwrap();
-    let duplicate_id = ScopedCoreTypeId::new(CoreUniverseId::new(8), 0);
+    let duplicate_id = ScopedEncodedTypeId::new(EncodedUniverseId::new(8), 0);
     duplicate_id_builder.leaf_at(duplicate_id, alpha);
     duplicate_id_builder.leaf_at(duplicate_id, beta);
     assert!(matches!(
-        duplicate_id_builder.build(CoreUniverseId::new(8)),
+        duplicate_id_builder.build(EncodedUniverseId::new(8)),
         Err(UniverseError::DuplicateMemberIdentity(id)) if id == duplicate_id
     ));
 
-    let mut duplicate_name_builder = CoreUniverseBuilder::new();
+    let mut duplicate_name_builder = EncodedUniverseBuilder::new();
     let alpha = duplicate_name_builder.intern("Alpha").unwrap();
-    duplicate_name_builder.leaf_at(ScopedCoreTypeId::new(CoreUniverseId::new(8), 0), alpha);
-    duplicate_name_builder.leaf_at(ScopedCoreTypeId::new(CoreUniverseId::new(8), 1), alpha);
+    duplicate_name_builder.leaf_at(
+        ScopedEncodedTypeId::new(EncodedUniverseId::new(8), 0),
+        alpha,
+    );
+    duplicate_name_builder.leaf_at(
+        ScopedEncodedTypeId::new(EncodedUniverseId::new(8), 1),
+        alpha,
+    );
     assert!(matches!(
-        duplicate_name_builder.build(CoreUniverseId::new(8)),
+        duplicate_name_builder.build(EncodedUniverseId::new(8)),
         Err(UniverseError::DuplicateMemberName(name)) if name == alpha
     ));
 }
 
 #[test]
 fn direct_builder_seal_rejects_member_from_another_universe() {
-    let expected = CoreUniverseId::new(12);
-    let actual = CoreUniverseId::new(13);
-    let mut builder = CoreUniverseBuilder::new();
+    let expected = EncodedUniverseId::new(12);
+    let actual = EncodedUniverseId::new(13);
+    let mut builder = EncodedUniverseBuilder::new();
     let alpha = builder.intern("Alpha").unwrap();
-    let foreign_member = ScopedCoreTypeId::new(actual, 0);
+    let foreign_member = ScopedEncodedTypeId::new(actual, 0);
     builder.leaf_at(foreign_member, alpha);
 
     assert!(matches!(
@@ -279,19 +286,19 @@ fn direct_builder_seal_rejects_member_from_another_universe() {
 
 #[test]
 fn direct_builder_seal_rejects_nested_plain_reference_from_another_universe() {
-    let expected = CoreUniverseId::new(14);
-    let actual = CoreUniverseId::new(15);
-    let mut builder = CoreUniverseBuilder::new();
+    let expected = EncodedUniverseId::new(14);
+    let actual = EncodedUniverseId::new(15);
+    let mut builder = EncodedUniverseBuilder::new();
     let record = builder.intern("Record").unwrap();
     let target = builder.intern("Target").unwrap();
-    let foreign_target = ScopedCoreTypeId::new(actual, 1);
+    let foreign_target = ScopedEncodedTypeId::new(actual, 1);
     builder.declaration(
-        ScopedCoreTypeId::new(expected, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(expected, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::SingleTypeApplication {
+            EncodedReference::SingleTypeApplication {
                 projection: SingleTypeReferenceProjection::Optional,
-                argument: Box::new(CoreReference::Plain(target)),
+                argument: Box::new(EncodedReference::Plain(target)),
             },
         ))),
     );
@@ -309,19 +316,19 @@ fn direct_builder_seal_rejects_nested_plain_reference_from_another_universe() {
 
 #[test]
 fn direct_builder_seal_rejects_nested_scalar_reference_from_another_universe() {
-    let expected = CoreUniverseId::new(16);
-    let actual = CoreUniverseId::new(17);
-    let mut builder = CoreUniverseBuilder::new();
+    let expected = EncodedUniverseId::new(16);
+    let actual = EncodedUniverseId::new(17);
+    let mut builder = EncodedUniverseBuilder::new();
     let record = builder.intern("Record").unwrap();
     let integer = builder.intern("Integer").unwrap();
-    let foreign_integer = ScopedCoreTypeId::new(actual, 1);
+    let foreign_integer = ScopedEncodedTypeId::new(actual, 1);
     builder.declaration(
-        ScopedCoreTypeId::new(expected, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(expected, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::SingleTypeApplication {
+            EncodedReference::SingleTypeApplication {
                 projection: SingleTypeReferenceProjection::Optional,
-                argument: Box::new(CoreReference::Integer),
+                argument: Box::new(EncodedReference::Integer),
             },
         ))),
     );
@@ -339,14 +346,14 @@ fn direct_builder_seal_rejects_nested_scalar_reference_from_another_universe() {
 
 #[test]
 fn direct_builder_seal_rejects_an_absent_scalar_slot() {
-    let universe = CoreUniverseId::new(18);
-    let mut builder = CoreUniverseBuilder::new();
+    let universe = EncodedUniverseId::new(18);
+    let mut builder = EncodedUniverseBuilder::new();
     let record = builder.intern("Record").unwrap();
     builder.declaration(
-        ScopedCoreTypeId::new(universe, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(universe, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::Integer,
+            EncodedReference::Integer,
         ))),
     );
 
@@ -354,22 +361,22 @@ fn direct_builder_seal_rejects_an_absent_scalar_slot() {
         builder.build(universe),
         Err(UniverseError::MissingScalarSlot {
             slot: ScalarSlot::Integer,
-            reference: CoreReference::Integer,
+            reference: EncodedReference::Integer,
         })
     ));
 }
 
 #[test]
 fn direct_builder_seal_rejects_a_name_table_only_plain_target() {
-    let universe = CoreUniverseId::new(19);
-    let mut builder = CoreUniverseBuilder::new();
+    let universe = EncodedUniverseId::new(19);
+    let mut builder = EncodedUniverseBuilder::new();
     let record = builder.intern("Record").unwrap();
     let target = builder.intern("TableOnlyTarget").unwrap();
     builder.declaration(
-        ScopedCoreTypeId::new(universe, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(universe, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::Plain(target),
+            EncodedReference::Plain(target),
         ))),
     );
 
@@ -377,23 +384,23 @@ fn direct_builder_seal_rejects_a_name_table_only_plain_target() {
         builder.build(universe),
         Err(UniverseError::ReferenceTargetUnregistered {
             identifier,
-            reference: CoreReference::Plain(reference),
+            reference: EncodedReference::Plain(reference),
         }) if identifier == target && reference == target
     ));
 }
 
 #[test]
 fn direct_builder_seal_rejects_nested_missing_scalar_and_member_references() {
-    let universe = CoreUniverseId::new(20);
-    let mut scalar_builder = CoreUniverseBuilder::new();
+    let universe = EncodedUniverseId::new(20);
+    let mut scalar_builder = EncodedUniverseBuilder::new();
     let record = scalar_builder.intern("Record").unwrap();
     scalar_builder.declaration(
-        ScopedCoreTypeId::new(universe, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(universe, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::SingleTypeApplication {
+            EncodedReference::SingleTypeApplication {
                 projection: SingleTypeReferenceProjection::Optional,
-                argument: Box::new(CoreReference::Integer),
+                argument: Box::new(EncodedReference::Integer),
             },
         ))),
     );
@@ -401,20 +408,20 @@ fn direct_builder_seal_rejects_nested_missing_scalar_and_member_references() {
         scalar_builder.build(universe),
         Err(UniverseError::MissingScalarSlot {
             slot: ScalarSlot::Integer,
-            reference: CoreReference::Integer,
+            reference: EncodedReference::Integer,
         })
     ));
 
-    let mut member_builder = CoreUniverseBuilder::new();
+    let mut member_builder = EncodedUniverseBuilder::new();
     let record = member_builder.intern("Record").unwrap();
     let target = member_builder.intern("TableOnlyTarget").unwrap();
     member_builder.declaration(
-        ScopedCoreTypeId::new(universe, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(universe, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::SingleTypeApplication {
+            EncodedReference::SingleTypeApplication {
                 projection: SingleTypeReferenceProjection::Optional,
-                argument: Box::new(CoreReference::Plain(target)),
+                argument: Box::new(EncodedReference::Plain(target)),
             },
         ))),
     );
@@ -422,32 +429,32 @@ fn direct_builder_seal_rejects_nested_missing_scalar_and_member_references() {
         member_builder.build(universe),
         Err(UniverseError::ReferenceTargetUnregistered {
             identifier,
-            reference: CoreReference::Plain(reference),
+            reference: EncodedReference::Plain(reference),
         }) if identifier == target && reference == target
     ));
 }
 
 #[test]
 fn direct_builder_seal_resolves_registered_scalar_and_plain_targets() {
-    let universe_id = CoreUniverseId::new(21);
-    let mut builder = CoreUniverseBuilder::new();
+    let universe_id = EncodedUniverseId::new(21);
+    let mut builder = EncodedUniverseBuilder::new();
     let record = builder.intern("Record").unwrap();
     let target = builder.intern("Target").unwrap();
     let integer = builder.intern("Integer").unwrap();
-    let target_id = ScopedCoreTypeId::new(universe_id, 1);
-    let integer_id = ScopedCoreTypeId::new(universe_id, 2);
+    let target_id = ScopedEncodedTypeId::new(universe_id, 1);
+    let integer_id = ScopedEncodedTypeId::new(universe_id, 2);
     builder.declaration(
-        ScopedCoreTypeId::new(universe_id, 0),
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        ScopedEncodedTypeId::new(universe_id, 0),
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             record,
-            CoreReference::Plain(target),
+            EncodedReference::Plain(target),
         ))),
     );
     builder.declaration(
         target_id,
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             target,
-            CoreReference::Integer,
+            EncodedReference::Integer,
         ))),
     );
     builder.primitive_at(integer_id, integer, ScalarSlot::Integer);
@@ -457,12 +464,14 @@ fn direct_builder_seal_resolves_registered_scalar_and_plain_targets() {
         .expect("registered scalar and member references satisfy the seal");
     assert_eq!(
         universe
-            .resolve_reference(&CoreReference::Plain(target))
+            .resolve_reference(&EncodedReference::Plain(target))
             .unwrap(),
         target_id
     );
     assert_eq!(
-        universe.resolve_reference(&CoreReference::Integer).unwrap(),
+        universe
+            .resolve_reference(&EncodedReference::Integer)
+            .unwrap(),
         integer_id
     );
 }

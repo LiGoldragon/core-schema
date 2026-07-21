@@ -5,7 +5,7 @@ edition      = "2024"
 rust-version = "1.85"
 license      = "MIT OR Apache-2.0"
 repository   = "https://github.com/LiGoldragon/core-schema"
-description  = "The stringless CoreSchema layer and TextualSchema form: sliced identifiers, universe signatures, and bidirectional schema text."
+description  = "The stringless EncodedSchema layer and TextualSchema form: sliced identifiers, universe signatures, and bidirectional schema text."
 publish      = false
 
 [lib]
@@ -13,10 +13,10 @@ name = "core_schema"
 path = "src/lib.rs"
 
 [dependencies]
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4" }
-raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4" }
-structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "b69cd8075eb2fc6563e5331878597c6878753295" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "b69cd8075eb2fc6563e5331878597c6878753295" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "b69cd8075eb2fc6563e5331878597c6878753295" }
+structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "b69cd8075eb2fc6563e5331878597c6878753295" }
 rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror        = "2"
 
@@ -27,7 +27,7 @@ thiserror        = "2"
 # (`tests/derived_conformance.rs`): the derive lives upstream in protos, but the
 # proof that its emitted entries equal these authored entries belongs here, where a
 # single pin governs both.
-structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "290f2a1c5a9ae2bb2769d7dcd1722c056b85a5d4" }
+structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "b69cd8075eb2fc6563e5331878597c6878753295" }
 
 [lints.rust]
 unsafe_code = "forbid"

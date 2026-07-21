@@ -1,16 +1,16 @@
 //! Typed errors at the crate boundary (thiserror; no anyhow). Each surface owns a
-//! focused enum: Core identity, universe-bridge derivation and signature
+//! focused enum: Encoded identity, universe-bridge derivation and signature
 //! validation, and the Textual round-trip.
 
 use content_identity::ArchiveError;
 use name_table::{Identifier, IdentifierNamespace, NameTableError};
 use raw_discovery::RecognizeError;
-use structural_codec::ids::{CoreUniverseId, ScopedCoreTypeId};
+use structural_codec::ids::{EncodedUniverseId, ScopedEncodedTypeId};
 use structural_codec::{DecodeError, EncodeError, TableError};
 
-/// Computing a stringless-Core value's content identity failed.
+/// Computing a stringless-Encoded value's content identity failed.
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CoreIdentityError {
+pub enum EncodedIdentityError {
     #[error(transparent)]
     Archive(#[from] ArchiveError),
 }
@@ -53,11 +53,11 @@ impl std::fmt::Display for StreamingReferenceForm {
     }
 }
 
-/// A CoreSchema relation or its schema-local identifiers did not meet the encoded
+/// A EncodedSchema relation or its schema-local identifiers did not meet the encoded
 /// schema contract.
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CoreSchemaError {
-    #[error("CoreSchema requires Schema identifiers, not {0}")]
+pub enum EncodedSchemaError {
+    #[error("EncodedSchema requires Schema identifiers, not {0}")]
     NonSchemaIdentifier(Identifier),
     #[error("a streaming relation requires an input interface enumeration")]
     MissingInputInterface,
@@ -89,20 +89,20 @@ pub enum CoreSchemaError {
     },
 }
 
-/// A failure at the validated CoreSchema archive boundary.
+/// A failure at the validated EncodedSchema archive boundary.
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CoreSchemaLoadError {
+pub enum EncodedSchemaLoadError {
     #[error(transparent)]
     Archive(#[from] ArchiveError),
     #[error(transparent)]
-    Schema(#[from] CoreSchemaError),
+    Schema(#[from] EncodedSchemaError),
 }
 
 /// The universe bridge — allocating type ids, deriving positional signatures from
-/// the Core layout, or validating an authored structural table against that
+/// the Encoded layout, or validating an authored structural table against that
 /// layout — failed. `SignatureMismatch` is the loud failure the deferred
-/// signature-vs-Core deviation is closed by: an authored codec signature that does
-/// not equal the constructor's Core field signature.
+/// signature-vs-Encoded deviation is closed by: an authored codec signature that does
+/// not equal the constructor's Encoded field signature.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum UniverseError {
     #[error(
@@ -110,54 +110,54 @@ pub enum UniverseError {
     )]
     MissingScalarSlot {
         slot: crate::universe::ScalarSlot,
-        reference: crate::reference::CoreReference,
+        reference: crate::reference::EncodedReference,
     },
     #[error("reference {reference:?} names {identifier}, which is absent from the NameTable")]
     ReferenceNameAbsent {
         identifier: Identifier,
-        reference: crate::reference::CoreReference,
+        reference: crate::reference::EncodedReference,
     },
     #[error("reference {reference:?} names {identifier}, which has no registered universe member")]
     ReferenceTargetUnregistered {
         identifier: Identifier,
-        reference: crate::reference::CoreReference,
+        reference: crate::reference::EncodedReference,
     },
     #[error("no universe type is registered under id {0:?}")]
-    UnknownType(ScopedCoreTypeId),
+    UnknownType(ScopedEncodedTypeId),
     #[error("two universe members use type id {0:?}")]
-    DuplicateMemberIdentity(ScopedCoreTypeId),
+    DuplicateMemberIdentity(ScopedEncodedTypeId),
     #[error("universe member {member:?} belongs to {actual:?}, but this build seals {expected:?}")]
     UniverseScopeMismatch {
-        expected: CoreUniverseId,
-        actual: CoreUniverseId,
-        member: ScopedCoreTypeId,
+        expected: EncodedUniverseId,
+        actual: EncodedUniverseId,
+        member: ScopedEncodedTypeId,
     },
     #[error("two universe members use Schema identifier {0}")]
     DuplicateMemberName(Identifier),
     #[error("two scalar primitive registrations fill the {0:?} slot")]
     DuplicateScalarSlot(crate::universe::ScalarSlot),
     #[error(
-        "type {core_type:?} has {members} Core constructor(s), but the table entry has {codecs}"
+        "type {encoded_type:?} has {members} Encoded constructor(s), but the table entry has {codecs}"
     )]
     ConstructorCountMismatch {
-        core_type: ScopedCoreTypeId,
+        encoded_type: ScopedEncodedTypeId,
         members: usize,
         codecs: usize,
     },
     #[error(
-        "constructor {constructor} of type {core_type:?}: authored signature {authored:?} does not equal the Core field signature {core:?}"
+        "constructor {constructor} of type {encoded_type:?}: authored signature {authored:?} does not equal the Encoded field signature {encoded:?}"
     )]
     SignatureMismatch {
-        core_type: ScopedCoreTypeId,
+        encoded_type: ScopedEncodedTypeId,
         constructor: u32,
-        authored: Vec<ScopedCoreTypeId>,
-        core: Vec<ScopedCoreTypeId>,
+        authored: Vec<ScopedEncodedTypeId>,
+        encoded: Vec<ScopedEncodedTypeId>,
     },
-    #[error("the structural table holds no entry for Core type {0:?}")]
-    TableEntryAbsent(ScopedCoreTypeId),
-    #[error("the authority supplied {actual:?} as the NameTable home; CoreSchema owns Schema")]
+    #[error("the structural table holds no entry for Encoded type {0:?}")]
+    TableEntryAbsent(ScopedEncodedTypeId),
+    #[error("the authority supplied {actual:?} as the NameTable home; EncodedSchema owns Schema")]
     WrongNameTableHome { actual: IdentifierNamespace },
-    #[error("the authority supplied non-Schema identifier {0} for CoreSchema")]
+    #[error("the authority supplied non-Schema identifier {0} for EncodedSchema")]
     WrongSchemaIdentifier(Identifier),
     #[error(
         "the authority member identifier {assigned} does not equal declaration identifier {declared}"
@@ -176,8 +176,8 @@ pub enum UniverseError {
     Names(#[from] NameTableError),
 }
 
-/// A Textual round-trip — recognizing schema text, decoding it into a CoreSchema
-/// value, or encoding a CoreSchema value back to canonical text — failed.
+/// A Textual round-trip — recognizing schema text, decoding it into a EncodedSchema
+/// value, or encoding a EncodedSchema value back to canonical text — failed.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum TextualError {
     #[error("the source held no root object to decode")]

@@ -1,7 +1,7 @@
-//! The stringless `CoreSchema` declaration family, modelled on `schema-language`'s
-//! `CoreType { Struct | Enum | Newtype }`. Every name is an [`Identifier`] into the
+//! The stringless `EncodedSchema` declaration family, modelled on `schema-language`'s
+//! `EncodedType { Struct | Enum | Newtype }`. Every name is an [`Identifier`] into the
 //! [`NameTable`]; the declarations carry no strings, so a rename is a table-only
-//! edit that never moves a Core value's content identity.
+//! edit that never moves a Encoded value's content identity.
 //!
 //! [`NameTable`]: name_table::NameTable
 
@@ -9,22 +9,22 @@ use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion,
 use name_table::{Identifier, NameResolver, NameTableError};
 
 use crate::error::{
-    CoreIdentityError, CoreSchemaError, CoreSchemaLoadError, StreamingReferenceForm,
+    EncodedIdentityError, EncodedSchemaError, EncodedSchemaLoadError, StreamingReferenceForm,
     StreamingRelationReference,
 };
-use crate::reference::CoreReference;
+use crate::reference::EncodedReference;
 
-/// The hash domain for stringless CoreSchema values, layout-version tagged. A
-/// CoreSchema value's identity is blake3 over its stringless rkyv bytes under this
+/// The hash domain for stringless EncodedSchema values, layout-version tagged. A
+/// EncodedSchema value's identity is blake3 over its stringless rkyv bytes under this
 /// domain; the NameTable is not in the pre-image, so identity is rename-stable.
-pub struct CoreSchemaDomain;
+pub struct EncodedSchemaDomain;
 
-impl HashDomain for CoreSchemaDomain {
+impl HashDomain for EncodedSchemaDomain {
     fn separation() -> DomainSeparation {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
             // Layout 5: `StreamingRelation` is closed encoded protocol data on
-            // CoreSchema. The validated archive DTO intentionally preserves this
+            // EncodedSchema. The validated archive DTO intentionally preserves this
             // exact canonical field layout. Layout 4 introduced namespace-variant `u16` identifiers;
             // both layout changes are intentional producer-to-consumer breaks. Old
             // schema packages are regenerated with their accompanying NameTable rather
@@ -59,23 +59,23 @@ impl HashDomain for CoreSchemaDomain {
 /// document-kind design review, which may reshape how interface roots and the
 /// document kinds relate.
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct CoreSchema {
-    declarations: Vec<CoreDeclaration>,
+pub struct EncodedSchema {
+    declarations: Vec<EncodedDeclaration>,
     streaming_relations: Vec<StreamingRelation>,
 }
 
-/// The private wire representation of [`CoreSchema`]. Keeping rkyv on this DTO
-/// makes archive bytes a validated boundary rather than a second public CoreSchema
-/// constructor. Its fields deliberately match CoreSchema's canonical layout so
+/// The private wire representation of [`EncodedSchema`]. Keeping rkyv on this DTO
+/// makes archive bytes a validated boundary rather than a second public EncodedSchema
+/// constructor. Its fields deliberately match EncodedSchema's canonical layout so
 /// content identity remains over the same stringless data.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-struct CoreSchemaArchive {
-    declarations: Vec<CoreDeclaration>,
+struct EncodedSchemaArchive {
+    declarations: Vec<EncodedDeclaration>,
     streaming_relations: Vec<StreamingRelation>,
 }
 
-impl From<&CoreSchema> for CoreSchemaArchive {
-    fn from(schema: &CoreSchema) -> Self {
+impl From<&EncodedSchema> for EncodedSchemaArchive {
+    fn from(schema: &EncodedSchema) -> Self {
         Self {
             declarations: schema.declarations.clone(),
             streaming_relations: schema.streaming_relations.clone(),
@@ -83,10 +83,10 @@ impl From<&CoreSchema> for CoreSchemaArchive {
     }
 }
 
-impl TryFrom<CoreSchemaArchive> for CoreSchema {
-    type Error = CoreSchemaError;
+impl TryFrom<EncodedSchemaArchive> for EncodedSchema {
+    type Error = EncodedSchemaError;
 
-    fn try_from(archive: CoreSchemaArchive) -> Result<Self, Self::Error> {
+    fn try_from(archive: EncodedSchemaArchive) -> Result<Self, Self::Error> {
         Self::with_streaming_relations(archive.declarations, archive.streaming_relations)
     }
 }
@@ -102,9 +102,9 @@ impl TryFrom<CoreSchemaArchive> for CoreSchema {
 pub struct StreamingRelation {
     opening_input_variant: Identifier,
     acknowledgement_output_variant: Identifier,
-    token: CoreReference,
-    event: CoreReference,
-    close_token: CoreReference,
+    token: EncodedReference,
+    event: EncodedReference,
+    close_token: EncodedReference,
 }
 
 impl StreamingRelation {
@@ -112,9 +112,9 @@ impl StreamingRelation {
     pub fn new(
         opening_input_variant: Identifier,
         acknowledgement_output_variant: Identifier,
-        token: CoreReference,
-        event: CoreReference,
-        close_token: CoreReference,
+        token: EncodedReference,
+        event: EncodedReference,
+        close_token: EncodedReference,
     ) -> Self {
         Self {
             opening_input_variant,
@@ -133,15 +133,15 @@ impl StreamingRelation {
         self.acknowledgement_output_variant
     }
 
-    pub fn token(&self) -> &CoreReference {
+    pub fn token(&self) -> &EncodedReference {
         &self.token
     }
 
-    pub fn event(&self) -> &CoreReference {
+    pub fn event(&self) -> &EncodedReference {
         &self.event
     }
 
-    pub fn close_token(&self) -> &CoreReference {
+    pub fn close_token(&self) -> &EncodedReference {
         &self.close_token
     }
 
@@ -149,15 +149,15 @@ impl StreamingRelation {
     /// every carried identifier belongs to the Schema namespace, its endpoints are
     /// variants of the role-correct interface enumerations, and its encoded value
     /// references name data-type declarations in that same schema.
-    pub fn validate_in(&self, schema: &CoreSchema) -> Result<(), CoreSchemaError> {
+    pub fn validate_in(&self, schema: &EncodedSchema) -> Result<(), EncodedSchemaError> {
         schema.require_schema_identifier(self.opening_input_variant)?;
         schema.require_schema_identifier(self.acknowledgement_output_variant)?;
 
         let input = schema
             .input()
-            .ok_or(CoreSchemaError::MissingInputInterface)?;
-        let CoreType::Enumeration(input) = input.value() else {
-            return Err(CoreSchemaError::InterfaceRootNotEnumeration(
+            .ok_or(EncodedSchemaError::MissingInputInterface)?;
+        let EncodedType::Enumeration(input) = input.value() else {
+            return Err(EncodedSchemaError::InterfaceRootNotEnumeration(
                 DeclarationRole::InterfaceInput,
             ));
         };
@@ -166,16 +166,16 @@ impl StreamingRelation {
             .iter()
             .any(|variant| variant.identifier() == self.opening_input_variant)
         {
-            return Err(CoreSchemaError::OpeningEndpointNotInputVariant(
+            return Err(EncodedSchemaError::OpeningEndpointNotInputVariant(
                 self.opening_input_variant,
             ));
         }
 
         let output = schema
             .output()
-            .ok_or(CoreSchemaError::MissingOutputInterface)?;
-        let CoreType::Enumeration(output) = output.value() else {
-            return Err(CoreSchemaError::InterfaceRootNotEnumeration(
+            .ok_or(EncodedSchemaError::MissingOutputInterface)?;
+        let EncodedType::Enumeration(output) = output.value() else {
+            return Err(EncodedSchemaError::InterfaceRootNotEnumeration(
                 DeclarationRole::InterfaceOutput,
             ));
         };
@@ -184,7 +184,7 @@ impl StreamingRelation {
             .iter()
             .any(|variant| variant.identifier() == self.acknowledgement_output_variant)
         {
-            return Err(CoreSchemaError::AcknowledgementEndpointNotOutputVariant(
+            return Err(EncodedSchemaError::AcknowledgementEndpointNotOutputVariant(
                 self.acknowledgement_output_variant,
             ));
         }
@@ -200,35 +200,37 @@ impl StreamingRelation {
     }
 
     fn validate_reference(
-        schema: &CoreSchema,
-        reference: &CoreReference,
+        schema: &EncodedSchema,
+        reference: &EncodedReference,
         part: StreamingRelationReference,
-    ) -> Result<(), CoreSchemaError> {
+    ) -> Result<(), EncodedSchemaError> {
         match reference {
-            CoreReference::Plain(identifier) => {
+            EncodedReference::Plain(identifier) => {
                 schema.streaming_data_type(*identifier, part).map(|_| ())
             }
-            CoreReference::String
-            | CoreReference::Integer
-            | CoreReference::Boolean
-            | CoreReference::Bytes => Err(CoreSchemaError::StreamingReferenceMustNameDataType {
-                part,
-                form: StreamingReferenceForm::Scalar,
-            }),
-            CoreReference::ValueApplication { .. } => {
-                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+            EncodedReference::String
+            | EncodedReference::Integer
+            | EncodedReference::Boolean
+            | EncodedReference::Bytes => {
+                Err(EncodedSchemaError::StreamingReferenceMustNameDataType {
+                    part,
+                    form: StreamingReferenceForm::Scalar,
+                })
+            }
+            EncodedReference::ValueApplication { .. } => {
+                Err(EncodedSchemaError::StreamingReferenceMustNameDataType {
                     part,
                     form: StreamingReferenceForm::BytesLength,
                 })
             }
-            CoreReference::SingleTypeApplication { .. } => {
-                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+            EncodedReference::SingleTypeApplication { .. } => {
+                Err(EncodedSchemaError::StreamingReferenceMustNameDataType {
                     part,
                     form: StreamingReferenceForm::SingleTypeApplication,
                 })
             }
-            CoreReference::MultiTypeApplication { .. } => {
-                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+            EncodedReference::MultiTypeApplication { .. } => {
+                Err(EncodedSchemaError::StreamingReferenceMustNameDataType {
                     part,
                     form: StreamingReferenceForm::MultiTypeApplication,
                 })
@@ -237,9 +239,9 @@ impl StreamingRelation {
     }
 }
 
-impl CoreSchema {
+impl EncodedSchema {
     /// A schema over the given declaration substrate, without streaming relations.
-    pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
+    pub fn new(declarations: Vec<EncodedDeclaration>) -> Self {
         Self {
             declarations,
             streaming_relations: Vec::new(),
@@ -251,9 +253,9 @@ impl CoreSchema {
     /// input-interface variants, acknowledgement endpoints are output-interface
     /// variants, and every encoded relation reference resolves here.
     pub fn with_streaming_relations(
-        declarations: Vec<CoreDeclaration>,
+        declarations: Vec<EncodedDeclaration>,
         streaming_relations: Vec<StreamingRelation>,
-    ) -> Result<Self, CoreSchemaError> {
+    ) -> Result<Self, EncodedSchemaError> {
         let schema = Self {
             declarations,
             streaming_relations,
@@ -262,7 +264,7 @@ impl CoreSchema {
         Ok(schema)
     }
 
-    pub fn declarations(&self) -> &[CoreDeclaration] {
+    pub fn declarations(&self) -> &[EncodedDeclaration] {
         &self.declarations
     }
 
@@ -273,7 +275,7 @@ impl CoreSchema {
 
     /// The declarations that are ordinary data types — every declaration whose role
     /// is [`DeclarationRole::DataType`], the `types` block of the document layout.
-    pub fn data_declarations(&self) -> impl Iterator<Item = &CoreDeclaration> {
+    pub fn data_declarations(&self) -> impl Iterator<Item = &EncodedDeclaration> {
         self.declarations
             .iter()
             .filter(|declaration| declaration.role() == DeclarationRole::DataType)
@@ -281,23 +283,23 @@ impl CoreSchema {
 
     /// The document's input interface root — the declaration tagged
     /// [`DeclarationRole::InterfaceInput`], if the document carried one.
-    pub fn input(&self) -> Option<&CoreDeclaration> {
+    pub fn input(&self) -> Option<&EncodedDeclaration> {
         self.role_declaration(DeclarationRole::InterfaceInput)
     }
 
     /// The document's output interface root — the declaration tagged
     /// [`DeclarationRole::InterfaceOutput`], if the document carried one.
-    pub fn output(&self) -> Option<&CoreDeclaration> {
+    pub fn output(&self) -> Option<&EncodedDeclaration> {
         self.role_declaration(DeclarationRole::InterfaceOutput)
     }
 
-    fn role_declaration(&self, role: DeclarationRole) -> Option<&CoreDeclaration> {
+    fn role_declaration(&self, role: DeclarationRole) -> Option<&EncodedDeclaration> {
         self.declarations
             .iter()
             .find(|declaration| declaration.role() == role)
     }
 
-    fn declaration(&self, identifier: Identifier) -> Option<&CoreDeclaration> {
+    fn declaration(&self, identifier: Identifier) -> Option<&EncodedDeclaration> {
         self.declarations
             .iter()
             .find(|declaration| declaration.identifier() == identifier)
@@ -310,13 +312,13 @@ impl CoreSchema {
         &self,
         identifier: Identifier,
         part: StreamingRelationReference,
-    ) -> Result<&CoreDeclaration, CoreSchemaError> {
+    ) -> Result<&EncodedDeclaration, EncodedSchemaError> {
         self.require_schema_identifier(identifier)?;
         let declaration = self
             .declaration(identifier)
-            .ok_or(CoreSchemaError::UnresolvedStreamingReference { part, identifier })?;
+            .ok_or(EncodedSchemaError::UnresolvedStreamingReference { part, identifier })?;
         if declaration.role() != DeclarationRole::DataType {
-            return Err(CoreSchemaError::StreamingReferenceNotDataType {
+            return Err(EncodedSchemaError::StreamingReferenceNotDataType {
                 part,
                 identifier,
                 actual: declaration.role(),
@@ -325,17 +327,17 @@ impl CoreSchema {
         Ok(declaration)
     }
 
-    /// CoreSchema is Schema-owned data. Relation boundaries must not accept a
+    /// EncodedSchema is Schema-owned data. Relation boundaries must not accept a
     /// foreign namespace identifier simply because another declaration matches it.
-    fn require_schema_identifier(&self, identifier: Identifier) -> Result<(), CoreSchemaError> {
+    fn require_schema_identifier(&self, identifier: Identifier) -> Result<(), EncodedSchemaError> {
         if matches!(identifier, Identifier::Schema(_)) {
             Ok(())
         } else {
-            Err(CoreSchemaError::NonSchemaIdentifier(identifier))
+            Err(EncodedSchemaError::NonSchemaIdentifier(identifier))
         }
     }
 
-    fn validate_streaming_relations(&self) -> Result<(), CoreSchemaError> {
+    fn validate_streaming_relations(&self) -> Result<(), EncodedSchemaError> {
         for relation in &self.streaming_relations {
             relation.validate_in(self)?;
         }
@@ -345,22 +347,24 @@ impl CoreSchema {
     /// Archive this schema through its private wire DTO. The domain type itself
     /// intentionally has no raw rkyv surface, so every load must pass semantic
     /// relation validation.
-    pub fn to_archive_bytes(&self) -> Result<rkyv::util::AlignedVec, CoreSchemaLoadError> {
-        Ok(CoreSchemaArchive::from(self).to_archive_bytes()?)
+    pub fn to_archive_bytes(&self) -> Result<rkyv::util::AlignedVec, EncodedSchemaLoadError> {
+        Ok(EncodedSchemaArchive::from(self).to_archive_bytes()?)
     }
 
-    /// Load and validate a CoreSchema archive. Archive corruption and a valid rkyv
-    /// payload that violates the CoreSchema relation law are distinct typed errors.
-    pub fn from_archive_bytes(bytes: &[u8]) -> Result<Self, CoreSchemaLoadError> {
-        let archive = CoreSchemaArchive::from_archive_bytes(bytes)?;
+    /// Load and validate a EncodedSchema archive. Archive corruption and a valid rkyv
+    /// payload that violates the EncodedSchema relation law are distinct typed errors.
+    pub fn from_archive_bytes(bytes: &[u8]) -> Result<Self, EncodedSchemaLoadError> {
+        let archive = EncodedSchemaArchive::from_archive_bytes(bytes)?;
         Ok(Self::try_from(archive)?)
     }
 
     /// This schema's content identity, blake3 over the private DTO's canonical
     /// stringless rkyv bytes with the NameTable excluded by construction — a rename
     /// cannot move it.
-    pub fn content_identity(&self) -> Result<ContentHash<CoreSchemaDomain>, CoreIdentityError> {
-        Ok(ContentHash::of_core(&CoreSchemaArchive::from(self))?)
+    pub fn content_identity(
+        &self,
+    ) -> Result<ContentHash<EncodedSchemaDomain>, EncodedIdentityError> {
+        Ok(ContentHash::of_core(&EncodedSchemaArchive::from(self))?)
     }
 }
 
@@ -398,15 +402,15 @@ impl DeclarationRole {
 /// `Declaration`-name invariant of the ground truth: a declaration's name is always
 /// its value's name).
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreDeclaration {
+pub struct EncodedDeclaration {
     visibility: Visibility,
     role: DeclarationRole,
-    value: CoreType,
+    value: EncodedType,
 }
 
-impl CoreDeclaration {
+impl EncodedDeclaration {
     /// An ordinary data-type declaration ([`DeclarationRole::DataType`]).
-    pub fn new(visibility: Visibility, value: CoreType) -> Self {
+    pub fn new(visibility: Visibility, value: EncodedType) -> Self {
         Self {
             visibility,
             role: DeclarationRole::DataType,
@@ -415,13 +419,13 @@ impl CoreDeclaration {
     }
 
     /// A public data-type declaration.
-    pub fn public(value: CoreType) -> Self {
+    pub fn public(value: EncodedType) -> Self {
         Self::new(Visibility::Public, value)
     }
 
     /// A public interface-root declaration carrying its interface role. Interface
     /// roots are always public: they are a component's protocol surface.
-    pub fn interface(role: DeclarationRole, value: CoreType) -> Self {
+    pub fn interface(role: DeclarationRole, value: EncodedType) -> Self {
         Self {
             visibility: Visibility::Public,
             role,
@@ -438,7 +442,7 @@ impl CoreDeclaration {
         self.role
     }
 
-    pub fn value(&self) -> &CoreType {
+    pub fn value(&self) -> &EncodedType {
         &self.value
     }
 
@@ -455,15 +459,15 @@ pub enum Visibility {
     Private,
 }
 
-/// A declared type body, mirroring `schema-language`'s `CoreType`.
+/// A declared type body, mirroring `schema-language`'s `EncodedType`.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub enum CoreType {
-    Newtype(CoreNewtype),
-    Struct(CoreStruct),
-    Enumeration(CoreEnum),
+pub enum EncodedType {
+    Newtype(EncodedNewtype),
+    Struct(EncodedStruct),
+    Enumeration(EncodedEnum),
 }
 
-impl CoreType {
+impl EncodedType {
     /// The declared type's identifier.
     pub fn identifier(&self) -> Identifier {
         match self {
@@ -474,23 +478,23 @@ impl CoreType {
     }
 
     /// Lower a braced declaration body — the `Name.{ Field* }` form — into its
-    /// canonical Core type. A single-field body lowers to a [`Newtype`](Self::Newtype)
+    /// canonical Encoded type. A single-field body lowers to a [`Newtype`](Self::Newtype)
     /// over that field's reference (the field name is dropped, exactly as a `Name.Ref`
     /// newtype carries none); any other arity is a [`Struct`](Self::Struct). This is
     /// the single home for the single-field-brace rule (psyche ruling 2026-07-17, bead
     /// `primary-56d1.36`), so the native document decode converges byte-for-byte onto
     /// the legacy lowering (`schema-language`'s `MacroExpansionStructBody::lower_type`,
     /// which collapses a one-field struct body to a newtype the same way).
-    pub fn from_braced_body(identifier: Identifier, mut fields: Vec<CoreField>) -> Self {
+    pub fn from_braced_body(identifier: Identifier, mut fields: Vec<EncodedField>) -> Self {
         if fields.len() == 1 {
             let field = fields.remove(0);
-            Self::Newtype(CoreNewtype::new(identifier, field.reference().clone()))
+            Self::Newtype(EncodedNewtype::new(identifier, field.reference().clone()))
         } else {
-            Self::Struct(CoreStruct::new(identifier, fields))
+            Self::Struct(EncodedStruct::new(identifier, fields))
         }
     }
 
-    /// How many Core constructors this type has: a product (newtype, struct) has
+    /// How many Encoded constructors this type has: a product (newtype, struct) has
     /// one; a sum (enumeration) has one per variant.
     pub fn constructor_count(&self) -> usize {
         match self {
@@ -502,13 +506,13 @@ impl CoreType {
 
 /// A newtype declaration: a single wrapped reference.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreNewtype {
+pub struct EncodedNewtype {
     identifier: Identifier,
-    reference: CoreReference,
+    reference: EncodedReference,
 }
 
-impl CoreNewtype {
-    pub fn new(identifier: Identifier, reference: CoreReference) -> Self {
+impl EncodedNewtype {
+    pub fn new(identifier: Identifier, reference: EncodedReference) -> Self {
         Self {
             identifier,
             reference,
@@ -519,20 +523,20 @@ impl CoreNewtype {
         self.identifier
     }
 
-    pub fn reference(&self) -> &CoreReference {
+    pub fn reference(&self) -> &EncodedReference {
         &self.reference
     }
 }
 
 /// A struct declaration: an ordered list of typed fields.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreStruct {
+pub struct EncodedStruct {
     identifier: Identifier,
-    fields: Vec<CoreField>,
+    fields: Vec<EncodedField>,
 }
 
-impl CoreStruct {
-    pub fn new(identifier: Identifier, fields: Vec<CoreField>) -> Self {
+impl EncodedStruct {
+    pub fn new(identifier: Identifier, fields: Vec<EncodedField>) -> Self {
         Self { identifier, fields }
     }
 
@@ -540,7 +544,7 @@ impl CoreStruct {
         self.identifier
     }
 
-    pub fn fields(&self) -> &[CoreField] {
+    pub fn fields(&self) -> &[EncodedField] {
         &self.fields
     }
 }
@@ -549,13 +553,13 @@ impl CoreStruct {
 /// whose name equals the `snake_case` of its reference elides that name in text;
 /// the name is then derived on demand, never stored.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreField {
+pub struct EncodedField {
     identifier: Identifier,
-    reference: CoreReference,
+    reference: EncodedReference,
 }
 
-impl CoreField {
-    pub fn new(identifier: Identifier, reference: CoreReference) -> Self {
+impl EncodedField {
+    pub fn new(identifier: Identifier, reference: EncodedReference) -> Self {
         Self {
             identifier,
             reference,
@@ -566,7 +570,7 @@ impl CoreField {
         self.identifier
     }
 
-    pub fn reference(&self) -> &CoreReference {
+    pub fn reference(&self) -> &EncodedReference {
         &self.reference
     }
 
@@ -575,7 +579,7 @@ impl CoreField {
     /// consults this — a decoded field always carries its type-derived name. It
     /// remains the home for Nomos field lowering's derive-versus-preserve decision:
     /// when true the name is re-derived from the type, when false a programmatically
-    /// constructed Core carries it verbatim.
+    /// constructed Encoded carries it verbatim.
     pub fn name_is_derivable<Resolver: NameResolver + ?Sized>(
         &self,
         names: &Resolver,
@@ -587,13 +591,13 @@ impl CoreField {
 
 /// An enumeration declaration: an ordered list of variants.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreEnum {
+pub struct EncodedEnum {
     identifier: Identifier,
-    variants: Vec<CoreVariant>,
+    variants: Vec<EncodedVariant>,
 }
 
-impl CoreEnum {
-    pub fn new(identifier: Identifier, variants: Vec<CoreVariant>) -> Self {
+impl EncodedEnum {
+    pub fn new(identifier: Identifier, variants: Vec<EncodedVariant>) -> Self {
         Self {
             identifier,
             variants,
@@ -604,20 +608,20 @@ impl CoreEnum {
         self.identifier
     }
 
-    pub fn variants(&self) -> &[CoreVariant] {
+    pub fn variants(&self) -> &[EncodedVariant] {
         &self.variants
     }
 }
 
 /// An enum variant: its identifier and an optional payload reference.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
-pub struct CoreVariant {
+pub struct EncodedVariant {
     identifier: Identifier,
-    payload: Option<CoreReference>,
+    payload: Option<EncodedReference>,
 }
 
-impl CoreVariant {
-    pub fn new(identifier: Identifier, payload: Option<CoreReference>) -> Self {
+impl EncodedVariant {
+    pub fn new(identifier: Identifier, payload: Option<EncodedReference>) -> Self {
         Self {
             identifier,
             payload,
@@ -628,7 +632,7 @@ impl CoreVariant {
         self.identifier
     }
 
-    pub fn payload(&self) -> Option<&CoreReference> {
+    pub fn payload(&self) -> Option<&EncodedReference> {
         self.payload.as_ref()
     }
 }
@@ -639,10 +643,10 @@ mod archive_tests {
     use name_table::Identifier;
 
     use super::{
-        CoreDeclaration, CoreEnum, CoreNewtype, CoreReference, CoreSchema, CoreSchemaArchive,
-        CoreType, CoreVariant, DeclarationRole, StreamingRelation,
+        DeclarationRole, EncodedDeclaration, EncodedEnum, EncodedNewtype, EncodedReference,
+        EncodedSchema, EncodedSchemaArchive, EncodedType, EncodedVariant, StreamingRelation,
     };
-    use crate::error::{CoreSchemaError, CoreSchemaLoadError};
+    use crate::error::{EncodedSchemaError, EncodedSchemaLoadError};
 
     #[test]
     fn serialized_invalid_dto_is_rejected_at_the_semantic_archive_boundary() {
@@ -653,46 +657,49 @@ mod archive_tests {
         let token = Identifier::Schema(4);
         let event = Identifier::Schema(5);
         let close = Identifier::Schema(6);
-        let archive = CoreSchemaArchive {
+        let archive = EncodedSchemaArchive {
             declarations: vec![
-                CoreDeclaration::interface(
+                EncodedDeclaration::interface(
                     DeclarationRole::InterfaceInput,
-                    CoreType::Enumeration(CoreEnum::new(input, vec![CoreVariant::new(open, None)])),
-                ),
-                CoreDeclaration::interface(
-                    DeclarationRole::InterfaceOutput,
-                    CoreType::Enumeration(CoreEnum::new(
-                        output,
-                        vec![CoreVariant::new(acknowledged, None)],
+                    EncodedType::Enumeration(EncodedEnum::new(
+                        input,
+                        vec![EncodedVariant::new(open, None)],
                     )),
                 ),
-                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                EncodedDeclaration::interface(
+                    DeclarationRole::InterfaceOutput,
+                    EncodedType::Enumeration(EncodedEnum::new(
+                        output,
+                        vec![EncodedVariant::new(acknowledged, None)],
+                    )),
+                ),
+                EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                     token,
-                    CoreReference::Integer,
+                    EncodedReference::Integer,
                 ))),
-                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                     event,
-                    CoreReference::Integer,
+                    EncodedReference::Integer,
                 ))),
-                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                     close,
-                    CoreReference::Integer,
+                    EncodedReference::Integer,
                 ))),
             ],
             streaming_relations: vec![StreamingRelation::new(
                 open,
                 acknowledged,
-                CoreReference::Integer,
-                CoreReference::Plain(event),
-                CoreReference::Plain(close),
+                EncodedReference::Integer,
+                EncodedReference::Plain(event),
+                EncodedReference::Plain(close),
             )],
         };
         let bytes = archive.to_archive_bytes().expect("serialize crafted DTO");
 
         assert!(matches!(
-            CoreSchema::from_archive_bytes(&bytes),
-            Err(CoreSchemaLoadError::Schema(
-                CoreSchemaError::StreamingReferenceMustNameDataType { .. }
+            EncodedSchema::from_archive_bytes(&bytes),
+            Err(EncodedSchemaLoadError::Schema(
+                EncodedSchemaError::StreamingReferenceMustNameDataType { .. }
             ))
         ));
     }

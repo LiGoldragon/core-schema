@@ -1,33 +1,33 @@
-//! The universe bridge: how a set of stringless `CoreSchema` declarations forms a
-//! `structural-codec` Core universe.
+//! The universe bridge: how a set of stringless `EncodedSchema` declarations forms a
+//! `structural-codec` Encoded universe.
 //!
-//! A [`CoreUniverse`] allocates one [`ScopedCoreTypeId`] per Core type (the scalar
+//! A [`EncodedUniverse`] allocates one [`ScopedEncodedTypeId`] per Encoded type (the scalar
 //! leaf primitives, the `Field` meta-type, and each user declaration) and, from the
-//! Core layout alone, derives every constructor's [`PositionalSignature`] — the
+//! Encoded layout alone, derives every constructor's [`PositionalSignature`] — the
 //! ordered list of its fields' referenced types. That derivation is the single
 //! source of truth against which an authored structural table is checked.
 //!
-//! This closes `structural-codec`'s deferred deviation ("signature-vs-Core
-//! validation deferred — no Core layout in the PoC"): [`validate_table`] proves
-//! every `ConstructorCodec` signature in a table equals the Core constructor's
+//! This closes `structural-codec`'s deferred deviation ("signature-vs-Encoded
+//! validation deferred — no Encoded layout in the PoC"): [`validate_table`] proves
+//! every `ConstructorCodec` signature in a table equals the Encoded constructor's
 //! field signature, and a mismatched table fails loudly with
 //! [`UniverseError::SignatureMismatch`].
 //!
-//! [`validate_table`]: CoreUniverse::validate_table
+//! [`validate_table`]: EncodedUniverse::validate_table
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 use structural_codec::ids::{
-    CoreUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedCoreTypeId,
+    EncodedUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedEncodedTypeId,
 };
 use structural_codec::table::AddressedStructuralTable;
 
-use crate::declaration::{CoreDeclaration, CoreSchema, CoreType};
+use crate::declaration::{EncodedDeclaration, EncodedSchema, EncodedType};
 use crate::error::UniverseError;
-use crate::reference::CoreReference;
+use crate::reference::EncodedReference;
 
-/// What a universe type is, for the purpose of deriving its Core constructor
+/// What a universe type is, for the purpose of deriving its Encoded constructor
 /// signatures. A closed typed record: the constructor arity and each signature
 /// follow from the kind, never from a flag.
 #[derive(Clone, Debug)]
@@ -41,7 +41,7 @@ pub enum MemberKind {
     /// but the type standing at its position; its signature is empty.
     FieldMeta,
     /// A user declaration; its constructor signatures are derived from its layout.
-    Declaration(CoreDeclaration),
+    Declaration(EncodedDeclaration),
 }
 
 impl MemberKind {
@@ -57,13 +57,13 @@ impl MemberKind {
 /// One universe type: its allocated id, its name identifier, and its kind.
 #[derive(Clone, Debug)]
 pub struct UniverseType {
-    id: ScopedCoreTypeId,
+    id: ScopedEncodedTypeId,
     name: Identifier,
     kind: MemberKind,
 }
 
 impl UniverseType {
-    pub fn id(&self) -> ScopedCoreTypeId {
+    pub fn id(&self) -> ScopedEncodedTypeId {
         self.id
     }
 
@@ -76,29 +76,29 @@ impl UniverseType {
     }
 }
 
-/// A set of stringless Core declarations resolved into a structural-codec Core
-/// universe: id registry, name table, and the Core-layout signature derivation.
+/// A set of stringless Encoded declarations resolved into a structural-codec Encoded
+/// universe: id registry, name table, and the Encoded-layout signature derivation.
 #[derive(Clone, Debug)]
-pub struct CoreUniverse {
-    universe: CoreUniverseId,
+pub struct EncodedUniverse {
+    universe: EncodedUniverseId,
     names: NameTable,
     members: Vec<UniverseType>,
-    by_id: BTreeMap<ScopedCoreTypeId, usize>,
-    by_name: HashMap<Identifier, ScopedCoreTypeId>,
-    integer: Option<ScopedCoreTypeId>,
-    text: Option<ScopedCoreTypeId>,
-    boolean: Option<ScopedCoreTypeId>,
-    bytes: Option<ScopedCoreTypeId>,
+    by_id: BTreeMap<ScopedEncodedTypeId, usize>,
+    by_name: HashMap<Identifier, ScopedEncodedTypeId>,
+    integer: Option<ScopedEncodedTypeId>,
+    text: Option<ScopedEncodedTypeId>,
+    boolean: Option<ScopedEncodedTypeId>,
+    bytes: Option<ScopedEncodedTypeId>,
 }
 
-impl CoreUniverse {
+impl EncodedUniverse {
     /// The universe these types belong to.
-    pub fn universe(&self) -> CoreUniverseId {
+    pub fn universe(&self) -> EncodedUniverseId {
         self.universe
     }
 
     /// The schema's names. The projected (Textual) view resolves every identifier
-    /// through this table; a rename is an edit here that never touches the Core.
+    /// through this table; a rename is an edit here that never touches the Encoded.
     pub fn names(&self) -> &NameTable {
         &self.names
     }
@@ -114,13 +114,13 @@ impl CoreUniverse {
     }
 
     /// The schema-whole this universe declares: its declaration members, in ascending
-    /// id order, as a [`CoreSchema`]. The primitives and the `Field` meta-type are the
+    /// id order, as a [`EncodedSchema`]. The primitives and the `Field` meta-type are the
     /// universe's fixed substrate, not schema declarations, so they are not included.
     /// Under the authority-provided construction path ([`Self::from_assignment`]) the
     /// registration order already ascends by assigned local, so this schema's
     /// declaration order — and thus its content identity — is a deterministic function
     /// of the authority's assignment, never of parse order.
-    pub fn declared_schema(&self) -> CoreSchema {
+    pub fn declared_schema(&self) -> EncodedSchema {
         let mut ordered: Vec<&UniverseType> = self.members.iter().collect();
         ordered.sort_by_key(|member| member.id);
         let declarations = ordered
@@ -130,24 +130,24 @@ impl CoreUniverse {
                 MemberKind::Primitive | MemberKind::FieldMeta => None,
             })
             .collect();
-        CoreSchema::new(declarations)
+        EncodedSchema::new(declarations)
     }
 
     /// Build a universe from authority-assigned members and their complete composed
     /// name table. This transfers the table unchanged: its Schema home and every
-    /// borrowed slice are retained, and no name is resolved and re-interned. CoreSchema
+    /// borrowed slice are retained, and no name is resolved and re-interned. EncodedSchema
     /// members must use Schema identifiers; foreign identifiers are rejected at this
     /// typed boundary rather than silently converted by their spelling.
     pub fn from_assignment(
-        universe: CoreUniverseId,
+        universe: EncodedUniverseId,
         mut members: Vec<AssignedMember>,
         names: NameTable,
     ) -> Result<Self, UniverseError> {
         members.sort_by_key(AssignedMember::local);
 
-        let mut builder = CoreUniverseBuilder::from_name_table(names);
+        let mut builder = EncodedUniverseBuilder::from_name_table(names);
         for member in members {
-            let id = ScopedCoreTypeId::new(universe, member.local);
+            let id = ScopedEncodedTypeId::new(universe, member.local);
             match member.kind {
                 AssignedKind::ScalarPrimitive(slot) => {
                     builder.primitive_at(id, member.identifier, slot)
@@ -171,8 +171,8 @@ impl CoreUniverse {
     }
 
     fn validate_scoped_type_id(
-        expected: CoreUniverseId,
-        member: ScopedCoreTypeId,
+        expected: EncodedUniverseId,
+        member: ScopedEncodedTypeId,
     ) -> Result<(), UniverseError> {
         if member.universe == expected {
             Ok(())
@@ -186,11 +186,11 @@ impl CoreUniverse {
     }
 
     fn validate_reference_identifiers(
-        reference: &CoreReference,
+        reference: &EncodedReference,
         names: &NameTable,
         members: &[UniverseType],
-        scalar_registrations: &[(ScalarSlot, ScopedCoreTypeId)],
-        expected_universe: CoreUniverseId,
+        scalar_registrations: &[(ScalarSlot, ScopedEncodedTypeId)],
+        expected_universe: EncodedUniverseId,
     ) -> Result<(), UniverseError> {
         let validate_scalar = |slot| {
             let id = scalar_registrations
@@ -211,11 +211,11 @@ impl CoreUniverse {
             }
         };
         match reference {
-            CoreReference::String => validate_scalar(ScalarSlot::Text),
-            CoreReference::Integer => validate_scalar(ScalarSlot::Integer),
-            CoreReference::Boolean => validate_scalar(ScalarSlot::Boolean),
-            CoreReference::Bytes => validate_scalar(ScalarSlot::Bytes),
-            CoreReference::Plain(identifier) => {
+            EncodedReference::String => validate_scalar(ScalarSlot::Text),
+            EncodedReference::Integer => validate_scalar(ScalarSlot::Integer),
+            EncodedReference::Boolean => validate_scalar(ScalarSlot::Boolean),
+            EncodedReference::Bytes => validate_scalar(ScalarSlot::Bytes),
+            EncodedReference::Plain(identifier) => {
                 Self::validate_schema_identifier(*identifier)?;
                 names
                     .resolve(*identifier)
@@ -232,7 +232,7 @@ impl CoreUniverse {
                     })?;
                 Self::validate_scoped_type_id(expected_universe, member.id)
             }
-            CoreReference::SingleTypeApplication { argument, .. } => {
+            EncodedReference::SingleTypeApplication { argument, .. } => {
                 Self::validate_reference_identifiers(
                     argument,
                     names,
@@ -241,7 +241,7 @@ impl CoreUniverse {
                     expected_universe,
                 )
             }
-            CoreReference::MultiTypeApplication { arguments, .. } => {
+            EncodedReference::MultiTypeApplication { arguments, .. } => {
                 arguments.iter().try_for_each(|argument| {
                     Self::validate_reference_identifiers(
                         argument,
@@ -252,16 +252,16 @@ impl CoreUniverse {
                     )
                 })
             }
-            CoreReference::ValueApplication { .. } => Ok(()),
+            EncodedReference::ValueApplication { .. } => Ok(()),
         }
     }
 
     fn validate_declaration_identifiers(
-        declaration: &CoreDeclaration,
+        declaration: &EncodedDeclaration,
         names: &NameTable,
         members: &[UniverseType],
-        scalar_registrations: &[(ScalarSlot, ScopedCoreTypeId)],
-        expected_universe: CoreUniverseId,
+        scalar_registrations: &[(ScalarSlot, ScopedEncodedTypeId)],
+        expected_universe: EncodedUniverseId,
     ) -> Result<(), UniverseError> {
         let validate_identifier = |identifier| {
             Self::validate_schema_identifier(identifier)?;
@@ -270,14 +270,14 @@ impl CoreUniverse {
         };
         validate_identifier(declaration.identifier())?;
         match declaration.value() {
-            CoreType::Newtype(newtype) => Self::validate_reference_identifiers(
+            EncodedType::Newtype(newtype) => Self::validate_reference_identifiers(
                 newtype.reference(),
                 names,
                 members,
                 scalar_registrations,
                 expected_universe,
             ),
-            CoreType::Struct(structure) => {
+            EncodedType::Struct(structure) => {
                 for field in structure.fields() {
                     validate_identifier(field.identifier())?;
                     Self::validate_reference_identifiers(
@@ -290,7 +290,7 @@ impl CoreUniverse {
                 }
                 Ok(())
             }
-            CoreType::Enumeration(enumeration) => {
+            EncodedType::Enumeration(enumeration) => {
                 for variant in enumeration.variants() {
                     validate_identifier(variant.identifier())?;
                     if let Some(payload) = variant.payload() {
@@ -308,16 +308,16 @@ impl CoreUniverse {
         }
     }
 
-    fn member(&self, id: ScopedCoreTypeId) -> Result<&UniverseType, UniverseError> {
+    fn member(&self, id: ScopedEncodedTypeId) -> Result<&UniverseType, UniverseError> {
         self.by_id
             .get(&id)
             .and_then(|index| self.members.get(*index))
             .ok_or(UniverseError::UnknownType(id))
     }
 
-    /// The declared Core type at `id`, if the type is a user declaration (not a
+    /// The declared Encoded type at `id`, if the type is a user declaration (not a
     /// primitive or the `Field` meta-type). Reification dispatches on its shape.
-    pub fn core_type(&self, id: ScopedCoreTypeId) -> Option<&CoreType> {
+    pub fn encoded_type(&self, id: ScopedEncodedTypeId) -> Option<&EncodedType> {
         match self.member(id).ok()?.kind() {
             MemberKind::Declaration(declaration) => Some(declaration.value()),
             MemberKind::Primitive | MemberKind::FieldMeta => None,
@@ -325,7 +325,7 @@ impl CoreUniverse {
     }
 
     /// The universe type a name identifier names, if any.
-    pub fn type_of_name(&self, name: Identifier) -> Option<ScopedCoreTypeId> {
+    pub fn type_of_name(&self, name: Identifier) -> Option<ScopedEncodedTypeId> {
         self.by_name.get(&name).copied()
     }
 
@@ -336,20 +336,20 @@ impl CoreUniverse {
     /// typed error rather than a silent guess.
     pub fn resolve_reference(
         &self,
-        reference: &CoreReference,
-    ) -> Result<ScopedCoreTypeId, UniverseError> {
-        let scalar = |slot, id: Option<ScopedCoreTypeId>| {
+        reference: &EncodedReference,
+    ) -> Result<ScopedEncodedTypeId, UniverseError> {
+        let scalar = |slot, id: Option<ScopedEncodedTypeId>| {
             id.ok_or_else(|| UniverseError::MissingScalarSlot {
                 slot,
                 reference: reference.clone(),
             })
         };
         match reference {
-            CoreReference::Integer => scalar(ScalarSlot::Integer, self.integer),
-            CoreReference::String => scalar(ScalarSlot::Text, self.text),
-            CoreReference::Boolean => scalar(ScalarSlot::Boolean, self.boolean),
-            CoreReference::Bytes => scalar(ScalarSlot::Bytes, self.bytes),
-            CoreReference::Plain(identifier) => {
+            EncodedReference::Integer => scalar(ScalarSlot::Integer, self.integer),
+            EncodedReference::String => scalar(ScalarSlot::Text, self.text),
+            EncodedReference::Boolean => scalar(ScalarSlot::Boolean, self.boolean),
+            EncodedReference::Bytes => scalar(ScalarSlot::Bytes, self.bytes),
+            EncodedReference::Plain(identifier) => {
                 self.names.resolve(*identifier).map_err(|_| {
                     UniverseError::ReferenceNameAbsent {
                         identifier: *identifier,
@@ -363,45 +363,45 @@ impl CoreUniverse {
                     }
                 })
             }
-            CoreReference::SingleTypeApplication { .. } => Err(
+            EncodedReference::SingleTypeApplication { .. } => Err(
                 UniverseError::UnsupportedApplication("single-type generic application"),
             ),
-            CoreReference::MultiTypeApplication { .. } => Err(
+            EncodedReference::MultiTypeApplication { .. } => Err(
                 UniverseError::UnsupportedApplication("multi-type generic application"),
             ),
-            CoreReference::ValueApplication { .. } => {
+            EncodedReference::ValueApplication { .. } => {
                 Err(UniverseError::UnsupportedApplication("value application"))
             }
         }
     }
 
-    /// The number of Core constructors the type at `id` has.
-    pub fn constructor_count(&self, id: ScopedCoreTypeId) -> Result<usize, UniverseError> {
+    /// The number of Encoded constructors the type at `id` has.
+    pub fn constructor_count(&self, id: ScopedEncodedTypeId) -> Result<usize, UniverseError> {
         Ok(self.member(id)?.kind.constructor_count())
     }
 
-    /// Derive, from the Core layout alone, the positional field signature of one
+    /// Derive, from the Encoded layout alone, the positional field signature of one
     /// constructor: the ordered universe-type ids of its fields' referenced types.
     /// This is the ground truth the authored structural table is checked against.
-    pub fn core_signature(
+    pub fn encoded_signature(
         &self,
-        id: ScopedCoreTypeId,
+        id: ScopedEncodedTypeId,
         constructor: u32,
     ) -> Result<PositionalSignature, UniverseError> {
         let member = self.member(id)?;
-        let fields: Vec<ScopedCoreTypeId> = match &member.kind {
+        let fields: Vec<ScopedEncodedTypeId> = match &member.kind {
             MemberKind::Primitive | MemberKind::FieldMeta => Vec::new(),
             MemberKind::Declaration(declaration) => match declaration.value() {
-                CoreType::Newtype(newtype) => vec![self.resolve_reference(newtype.reference())?],
-                CoreType::Struct(structure) => structure
+                EncodedType::Newtype(newtype) => vec![self.resolve_reference(newtype.reference())?],
+                EncodedType::Struct(structure) => structure
                     .fields()
                     .iter()
                     .map(|field| self.resolve_reference(field.reference()))
                     .collect::<Result<_, _>>()?,
-                CoreType::Enumeration(enumeration) => {
+                EncodedType::Enumeration(enumeration) => {
                     let variant = enumeration.variants().get(constructor as usize).ok_or(
                         UniverseError::ConstructorCountMismatch {
-                            core_type: id,
+                            encoded_type: id,
                             members: enumeration.variants().len(),
                             codecs: constructor as usize + 1,
                         },
@@ -416,9 +416,9 @@ impl CoreUniverse {
         Ok(PositionalSignature::new(fields))
     }
 
-    /// Validate an authored structural table against the Core layout: every type
-    /// must have a table entry with one codec per Core constructor, and every
-    /// codec's authored signature must equal the Core-derived one. A mismatch is
+    /// Validate an authored structural table against the Encoded layout: every type
+    /// must have a table entry with one codec per Encoded constructor, and every
+    /// codec's authored signature must equal the Encoded-derived one. A mismatch is
     /// the loud [`UniverseError::SignatureMismatch`] — the deferred deviation,
     /// closed.
     pub fn validate_table(&self, table: &AddressedStructuralTable) -> Result<(), UniverseError> {
@@ -429,19 +429,19 @@ impl CoreUniverse {
             let expected = member.kind.constructor_count();
             if entry.constructors.len() != expected {
                 return Err(UniverseError::ConstructorCountMismatch {
-                    core_type: member.id,
+                    encoded_type: member.id,
                     members: expected,
                     codecs: entry.constructors.len(),
                 });
             }
             for (index, codec) in entry.constructors.iter().enumerate() {
-                let core = self.core_signature(member.id, index as u32)?;
-                if codec.signature.fields() != core.fields() {
+                let encoded = self.encoded_signature(member.id, index as u32)?;
+                if codec.signature.fields() != encoded.fields() {
                     return Err(UniverseError::SignatureMismatch {
-                        core_type: member.id,
+                        encoded_type: member.id,
                         constructor: index as u32,
                         authored: codec.signature.fields().to_vec(),
-                        core: core.fields().to_vec(),
+                        encoded: encoded.fields().to_vec(),
                     });
                 }
             }
@@ -464,7 +464,7 @@ pub enum AssignedKind {
     FieldMeta,
     /// A user declaration, carried whole so its visibility, role, identifiers, and
     /// references are preserved exactly through the build.
-    Declaration(CoreDeclaration),
+    Declaration(EncodedDeclaration),
 }
 
 /// One central-authority-assigned universe member: its authority-minted local type
@@ -487,7 +487,7 @@ impl AssignedMember {
     }
 
     /// The local identity the authority assigned — the `local` half of the member's
-    /// [`ScopedCoreTypeId`] and the key its registration order sorts by.
+    /// [`ScopedEncodedTypeId`] and the key its registration order sorts by.
     pub fn local(&self) -> u32 {
         self.local
     }
@@ -501,13 +501,13 @@ impl AssignedMember {
     }
 }
 
-/// Builds a [`CoreUniverse`], owning the shared [`NameTable`] so declarations are
+/// Builds a [`EncodedUniverse`], owning the shared [`NameTable`] so declarations are
 /// constructed against the same identifier space the universe resolves through.
 #[derive(Debug)]
-pub struct CoreUniverseBuilder {
+pub struct EncodedUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
-    scalar_registrations: Vec<(ScalarSlot, ScopedCoreTypeId)>,
+    scalar_registrations: Vec<(ScalarSlot, ScopedEncodedTypeId)>,
 }
 
 /// Which scalar leaf a primitive registration fills. Naming the slot as data keeps
@@ -520,7 +520,7 @@ pub enum ScalarSlot {
     Bytes,
 }
 
-impl Default for CoreUniverseBuilder {
+impl Default for EncodedUniverseBuilder {
     fn default() -> Self {
         Self {
             names: NameTable::new(IdentifierNamespace::Schema),
@@ -530,7 +530,7 @@ impl Default for CoreUniverseBuilder {
     }
 }
 
-impl CoreUniverseBuilder {
+impl EncodedUniverseBuilder {
     pub fn new() -> Self {
         Self::default()
     }
@@ -556,30 +556,30 @@ impl CoreUniverseBuilder {
 
     /// Register a scalar leaf primitive that is a reference target at an already
     /// interned identifier, filling its scalar slot.
-    pub fn primitive_at(&mut self, id: ScopedCoreTypeId, name: Identifier, slot: ScalarSlot) {
+    pub fn primitive_at(&mut self, id: ScopedEncodedTypeId, name: Identifier, slot: ScalarSlot) {
         self.scalar_registrations.push((slot, id));
         self.register(id, name, MemberKind::Primitive);
     }
 
     /// Register a scalar leaf primitive that is never a reference target at an already
     /// interned identifier (fills no scalar slot).
-    pub fn leaf_at(&mut self, id: ScopedCoreTypeId, name: Identifier) {
+    pub fn leaf_at(&mut self, id: ScopedEncodedTypeId, name: Identifier) {
         self.register(id, name, MemberKind::Primitive);
     }
 
     /// Register the `Field` meta-type at an already interned identifier.
-    pub fn field_meta_at(&mut self, id: ScopedCoreTypeId, name: Identifier) {
+    pub fn field_meta_at(&mut self, id: ScopedEncodedTypeId, name: Identifier) {
         self.register(id, name, MemberKind::FieldMeta);
     }
 
-    fn register(&mut self, id: ScopedCoreTypeId, name: Identifier, kind: MemberKind) {
+    fn register(&mut self, id: ScopedEncodedTypeId, name: Identifier, kind: MemberKind) {
         self.members.push(UniverseType { id, name, kind });
     }
 
     /// Register a scalar leaf primitive under a well-known name and scalar slot.
     pub fn primitive(
         &mut self,
-        id: ScopedCoreTypeId,
+        id: ScopedEncodedTypeId,
         name: &str,
         slot: ScalarSlot,
     ) -> Result<Identifier, name_table::NameTableError> {
@@ -594,7 +594,7 @@ impl CoreUniverseBuilder {
     /// leaf value type.
     pub fn primitive_leaf(
         &mut self,
-        id: ScopedCoreTypeId,
+        id: ScopedEncodedTypeId,
         name: &str,
     ) -> Result<Identifier, name_table::NameTableError> {
         let identifier = self.intern(name)?;
@@ -605,7 +605,7 @@ impl CoreUniverseBuilder {
     /// Register the `Field` meta-type under a name.
     pub fn field_meta(
         &mut self,
-        id: ScopedCoreTypeId,
+        id: ScopedEncodedTypeId,
         name: &str,
     ) -> Result<Identifier, name_table::NameTableError> {
         let identifier = self.intern(name)?;
@@ -616,8 +616,8 @@ impl CoreUniverseBuilder {
     /// Register a user declaration at an allocated id. The declaration's identifier
     /// must already be interned in the shared table (via [`intern`]).
     ///
-    /// [`intern`]: CoreUniverseBuilder::intern
-    pub fn declaration(&mut self, id: ScopedCoreTypeId, declaration: CoreDeclaration) {
+    /// [`intern`]: EncodedUniverseBuilder::intern
+    pub fn declaration(&mut self, id: ScopedEncodedTypeId, declaration: EncodedDeclaration) {
         self.assigned_declaration(id, declaration.identifier(), declaration);
     }
 
@@ -626,9 +626,9 @@ impl CoreUniverseBuilder {
     /// identifier alongside every other universe invariant.
     fn assigned_declaration(
         &mut self,
-        id: ScopedCoreTypeId,
+        id: ScopedEncodedTypeId,
         assigned: Identifier,
-        declaration: CoreDeclaration,
+        declaration: EncodedDeclaration,
     ) {
         self.register(id, assigned, MemberKind::Declaration(declaration));
     }
@@ -637,7 +637,7 @@ impl CoreUniverseBuilder {
     /// every identifier and reachable scoped reference, assignment/declaration agreement,
     /// universe scope, and registry uniqueness; maps are created only after those checks
     /// have passed.
-    pub fn build(self, universe: CoreUniverseId) -> Result<CoreUniverse, UniverseError> {
+    pub fn build(self, universe: EncodedUniverseId) -> Result<EncodedUniverse, UniverseError> {
         if self.names.namespace() != IdentifierNamespace::Schema {
             return Err(UniverseError::WrongNameTableHome {
                 actual: self.names.namespace(),
@@ -647,9 +647,9 @@ impl CoreUniverseBuilder {
         let mut member_ids = BTreeSet::new();
         let mut member_names = HashSet::new();
         for member in &self.members {
-            CoreUniverse::validate_schema_identifier(member.name)?;
+            EncodedUniverse::validate_schema_identifier(member.name)?;
             self.names.resolve(member.name)?;
-            CoreUniverse::validate_scoped_type_id(universe, member.id)?;
+            EncodedUniverse::validate_scoped_type_id(universe, member.id)?;
             if let MemberKind::Declaration(declaration) = &member.kind {
                 if declaration.identifier() != member.name {
                     return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
@@ -657,7 +657,7 @@ impl CoreUniverseBuilder {
                         declared: declaration.identifier(),
                     });
                 }
-                CoreUniverse::validate_declaration_identifiers(
+                EncodedUniverse::validate_declaration_identifiers(
                     declaration,
                     &self.names,
                     &self.members,
@@ -693,7 +693,7 @@ impl CoreUniverseBuilder {
             .collect();
         let scalars: HashMap<_, _> = self.scalar_registrations.into_iter().collect();
         let scalar = |slot: ScalarSlot| scalars.get(&slot).copied();
-        Ok(CoreUniverse {
+        Ok(EncodedUniverse {
             universe,
             integer: scalar(ScalarSlot::Integer),
             text: scalar(ScalarSlot::Text),
@@ -709,4 +709,4 @@ impl CoreUniverseBuilder {
 
 /// The explicit fixture universe id this proof-of-concept works in, re-exported so
 /// callers name the same universe `structural-codec`'s fixture ids scope to.
-pub const CORE_UNIVERSE: CoreUniverseId = FIXTURE_UNIVERSE;
+pub const ENCODED_UNIVERSE: EncodedUniverseId = FIXTURE_UNIVERSE;

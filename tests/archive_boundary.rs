@@ -1,9 +1,9 @@
-//! CoreSchema owns its archive API and rejects semantic invalidity after rkyv
+//! EncodedSchema owns its archive API and rejects semantic invalidity after rkyv
 //! validation; callers cannot deserialize the domain type directly.
 
 use core_schema::{
-    CoreDeclaration, CoreEnum, CoreNewtype, CoreReference, CoreSchema, CoreType, CoreVariant,
-    DeclarationRole, StreamingRelation,
+    DeclarationRole, EncodedDeclaration, EncodedEnum, EncodedNewtype, EncodedReference,
+    EncodedSchema, EncodedType, EncodedVariant, StreamingRelation,
 };
 use name_table::Identifier;
 
@@ -16,44 +16,47 @@ fn validated_archive_round_trips_a_streaming_schema() {
     let token = Identifier::Schema(4);
     let event = Identifier::Schema(5);
     let close = Identifier::Schema(6);
-    let schema = CoreSchema::with_streaming_relations(
+    let schema = EncodedSchema::with_streaming_relations(
         vec![
-            CoreDeclaration::interface(
+            EncodedDeclaration::interface(
                 DeclarationRole::InterfaceInput,
-                CoreType::Enumeration(CoreEnum::new(input, vec![CoreVariant::new(open, None)])),
-            ),
-            CoreDeclaration::interface(
-                DeclarationRole::InterfaceOutput,
-                CoreType::Enumeration(CoreEnum::new(
-                    output,
-                    vec![CoreVariant::new(acknowledged, None)],
+                EncodedType::Enumeration(EncodedEnum::new(
+                    input,
+                    vec![EncodedVariant::new(open, None)],
                 )),
             ),
-            CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+            EncodedDeclaration::interface(
+                DeclarationRole::InterfaceOutput,
+                EncodedType::Enumeration(EncodedEnum::new(
+                    output,
+                    vec![EncodedVariant::new(acknowledged, None)],
+                )),
+            ),
+            EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                 token,
-                CoreReference::Integer,
+                EncodedReference::Integer,
             ))),
-            CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+            EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                 event,
-                CoreReference::Integer,
+                EncodedReference::Integer,
             ))),
-            CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+            EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
                 close,
-                CoreReference::Integer,
+                EncodedReference::Integer,
             ))),
         ],
         vec![StreamingRelation::new(
             open,
             acknowledged,
-            CoreReference::Plain(token),
-            CoreReference::Plain(event),
-            CoreReference::Plain(close),
+            EncodedReference::Plain(token),
+            EncodedReference::Plain(event),
+            EncodedReference::Plain(close),
         )],
     )
     .expect("fixture is semantically valid");
 
     let bytes = schema.to_archive_bytes().expect("archive schema");
-    let loaded = CoreSchema::from_archive_bytes(&bytes).expect("load schema");
+    let loaded = EncodedSchema::from_archive_bytes(&bytes).expect("load schema");
 
     assert_eq!(loaded, schema);
     assert_eq!(

@@ -1,5 +1,5 @@
 {
-  description = "core-schema — the first real stringless Core schema layer and the first real Textual form (TextualSchema)";
+  description = "core-schema — the first real stringless Encoded schema layer and the first real Textual form (TextualSchema)";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";

@@ -1,13 +1,13 @@
 //! TextualSchema, the first real Textual form: real schema TEXT decodes into real
-//! CoreSchema values with a real NameTable, and encodes back canonically. The
+//! EncodedSchema values with a real NameTable, and encodes back canonically. The
 //! A struct field is a bare positional type reference — field names are illegal, so
-//! same-typed fields are told apart by position alone against the real Core layout.
+//! same-typed fields are told apart by position alone against the real Encoded layout.
 
 use core_schema::TextualError;
 use core_schema::TextualSchema;
-use core_schema::declaration::CoreType;
+use core_schema::declaration::EncodedType;
 use core_schema::fixture::{COMMIT_SEQUENCE, DATABASE_MARKER};
-use core_schema::reference::CoreReference;
+use core_schema::reference::EncodedReference;
 use name_table::{IdentifierNamespace, NameTable};
 use raw_discovery::Recognizer;
 use structural_codec::CanonicalText;
@@ -34,7 +34,7 @@ fn name_table_rows(names: &NameTable) -> String {
         .join("\n")
 }
 
-/// A newtype declaration decodes into a real `CoreNewtype` and encodes back to the
+/// A newtype declaration decodes into a real `EncodedNewtype` and encodes back to the
 /// identical canonical text.
 #[test]
 fn newtype_declaration_round_trips() {
@@ -46,14 +46,14 @@ fn newtype_declaration_round_trips() {
         .decode(COMMIT_SEQUENCE, source, &mut names)
         .expect("decode CommitSequence");
 
-    let CoreType::Newtype(newtype) = &value else {
+    let EncodedType::Newtype(newtype) = &value else {
         panic!("expected a newtype, got {value:?}");
     };
     assert_eq!(
         names.resolve(newtype.identifier()).unwrap().as_str(),
         "CommitSequence"
     );
-    assert_eq!(newtype.reference(), &CoreReference::Integer);
+    assert_eq!(newtype.reference(), &EncodedReference::Integer);
 
     println!(
         "decoded {source}\n  => {value:?}\nNameTable:\n{}",
@@ -67,7 +67,7 @@ fn newtype_declaration_round_trips() {
     println!("re-encoded => {re_encoded}");
 }
 
-/// The `DatabaseMarker` struct decodes into a real `CoreStruct` PURELY POSITIONALLY:
+/// The `DatabaseMarker` struct decodes into a real `EncodedStruct` PURELY POSITIONALLY:
 /// every field is a bare type reference and its name is DERIVED from that type, never
 /// read from the text (field names are illegal, psyche ruling 2026-07-19). Its two
 /// same-typed `StateDigest` fields therefore derive the SAME name `state_digest` and
@@ -82,7 +82,7 @@ fn struct_declaration_round_trips_positionally() {
         .decode(DATABASE_MARKER, source, &mut names)
         .expect("decode DatabaseMarker");
 
-    let CoreType::Struct(structure) = &value else {
+    let EncodedType::Struct(structure) = &value else {
         panic!("expected a struct, got {value:?}");
     };
     assert_eq!(
@@ -105,7 +105,7 @@ fn struct_declaration_round_trips_positionally() {
 
     // Every field references a declared type by identifier (Plain), never a string.
     for field in structure.fields() {
-        assert!(matches!(field.reference(), CoreReference::Plain(_)));
+        assert!(matches!(field.reference(), EncodedReference::Plain(_)));
     }
 
     println!(

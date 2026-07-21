@@ -20,12 +20,12 @@ use core_schema::fixture::{
     COMMIT_SEQUENCE, DATABASE_MARKER, DOCUMENTATION, FIELD, FLOAT, FixtureFamily, INTEGER,
     STATE_DIGEST, SUMMARY, TEXT,
 };
-use structural_codec::ids::ScopedCoreTypeId;
+use structural_codec::ids::ScopedEncodedTypeId;
 use structural_codec_derive_fixtures::DerivedTable;
 
 /// Every fixture type the two families share. The derived family and the authored
 /// family cover exactly this universe.
-const FIXTURE_TYPES: [ScopedCoreTypeId; 9] = [
+const FIXTURE_TYPES: [ScopedEncodedTypeId; 9] = [
     INTEGER,
     FLOAT,
     TEXT,

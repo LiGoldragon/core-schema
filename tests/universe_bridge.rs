@@ -1,5 +1,5 @@
-//! The universe bridge: id allocation, Core-derived positional signatures, and the
-//! signature-vs-Core validation that closes structural-codec's deferred deviation.
+//! The universe bridge: id allocation, Encoded-derived positional signatures, and the
+//! signature-vs-Encoded validation that closes structural-codec's deferred deviation.
 
 use core_schema::UniverseError;
 use core_schema::fixture::{
@@ -7,7 +7,7 @@ use core_schema::fixture::{
     TEXT,
 };
 
-/// Every constructor's positional signature is DERIVED from the Core layout: a
+/// Every constructor's positional signature is DERIVED from the Encoded layout: a
 /// newtype yields `[inner]`, the struct yields its three fields' referenced types,
 /// and the delegate chain yields the wrapped type.
 #[test]
@@ -17,29 +17,35 @@ fn signatures_are_derived_from_the_core_layout() {
 
     assert_eq!(
         universe
-            .core_signature(COMMIT_SEQUENCE, 0)
+            .encoded_signature(COMMIT_SEQUENCE, 0)
             .unwrap()
             .fields(),
         &[INTEGER],
         "CommitSequence wraps Integer",
     );
     assert_eq!(
-        universe.core_signature(STATE_DIGEST, 0).unwrap().fields(),
+        universe
+            .encoded_signature(STATE_DIGEST, 0)
+            .unwrap()
+            .fields(),
         &[INTEGER],
     );
     assert_eq!(
-        universe.core_signature(SUMMARY, 0).unwrap().fields(),
+        universe.encoded_signature(SUMMARY, 0).unwrap().fields(),
         &[TEXT],
         "Summary wraps Text",
     );
     assert_eq!(
-        universe.core_signature(DOCUMENTATION, 0).unwrap().fields(),
+        universe
+            .encoded_signature(DOCUMENTATION, 0)
+            .unwrap()
+            .fields(),
         &[SUMMARY],
         "Documentation wraps Summary",
     );
     assert_eq!(
         universe
-            .core_signature(DATABASE_MARKER, 0)
+            .encoded_signature(DATABASE_MARKER, 0)
             .unwrap()
             .fields(),
         &[COMMIT_SEQUENCE, STATE_DIGEST, STATE_DIGEST],
@@ -47,8 +53,8 @@ fn signatures_are_derived_from_the_core_layout() {
     );
 }
 
-/// The authored standard table's every codec signature equals the Core field
-/// signature — the deferred deviation, closed with a real Core layout to check.
+/// The authored standard table's every codec signature equals the Encoded field
+/// signature — the deferred deviation, closed with a real Encoded layout to check.
 #[test]
 fn authored_table_agrees_with_the_core_layout() {
     let family = FixtureFamily::build();
@@ -56,7 +62,7 @@ fn authored_table_agrees_with_the_core_layout() {
     family
         .universe()
         .validate_table(&table)
-        .expect("every authored signature equals the Core field signature");
+        .expect("every authored signature equals the Encoded field signature");
 }
 
 /// A mismatched table fails validation LOUDLY: the negative control corrupts
@@ -69,15 +75,19 @@ fn a_mismatched_table_fails_validation_loudly() {
 
     match family.universe().validate_table(&corrupted) {
         Err(UniverseError::SignatureMismatch {
-            core_type,
+            encoded_type,
             constructor,
             authored,
-            core,
+            encoded,
         }) => {
-            assert_eq!(core_type, COMMIT_SEQUENCE);
+            assert_eq!(encoded_type, COMMIT_SEQUENCE);
             assert_eq!(constructor, 0);
             assert!(authored.is_empty(), "the corrupted signature is empty");
-            assert_eq!(core, vec![INTEGER], "the Core layout demands [Integer]");
+            assert_eq!(
+                encoded,
+                vec![INTEGER],
+                "the Encoded layout demands [Integer]"
+            );
         }
         other => panic!("expected a loud SignatureMismatch, got {other:?}"),
     }

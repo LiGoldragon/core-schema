@@ -2,7 +2,7 @@
 //! single typed payload. This is encoded data only; no unsettled source spelling
 //! is authored here.
 
-use core_schema::{CoreEnum, CoreReference, CoreVariant};
+use core_schema::{EncodedEnum, EncodedReference, EncodedVariant};
 use name_table::{IdentifierNamespace, Name, NameTable};
 
 #[test]
@@ -18,13 +18,13 @@ fn ordered_unit_and_payload_interface_variants_share_one_algebra() {
         .intern(Name::new("SubscriptionToken"))
         .expect("test interface fits its namespace");
 
-    let interface = CoreEnum::new(
+    let interface = EncodedEnum::new(
         names
             .intern(Name::new("Output"))
             .expect("test interface fits its namespace"),
         vec![
-            CoreVariant::new(opened, None),
-            CoreVariant::new(delivered, Some(CoreReference::Plain(token))),
+            EncodedVariant::new(opened, None),
+            EncodedVariant::new(delivered, Some(EncodedReference::Plain(token))),
         ],
     );
 
@@ -33,6 +33,6 @@ fn ordered_unit_and_payload_interface_variants_share_one_algebra() {
     assert_eq!(interface.variants()[1].identifier(), delivered);
     assert!(matches!(
         interface.variants()[1].payload(),
-        Some(CoreReference::Plain(identifier)) if *identifier == token
+        Some(EncodedReference::Plain(identifier)) if *identifier == token
     ));
 }

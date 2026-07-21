@@ -1,9 +1,9 @@
-//! Core identity is blake3 over the stringless rkyv bytes with the NameTable
+//! Encoded identity is blake3 over the stringless rkyv bytes with the NameTable
 //! excluded, so a rename is hash-stable by construction while a structural edit
 //! moves the hash.
 
-use core_schema::declaration::{CoreNewtype, CoreType};
-use core_schema::{CoreDeclaration, CoreReference, CoreSchema, FixtureFamily};
+use core_schema::declaration::{EncodedNewtype, EncodedType};
+use core_schema::{EncodedDeclaration, EncodedReference, EncodedSchema, FixtureFamily};
 use name_table::{IdentifierNamespace, Name, NameTable};
 
 /// Rebuild a table identical to `original` except that identifier `target` resolves
@@ -29,7 +29,7 @@ fn rename(original: &NameTable, target: name_table::Identifier, replacement: &st
     renamed
 }
 
-/// A rename is a NameTable-only edit: the CoreSchema value is untouched, so its
+/// A rename is a NameTable-only edit: the EncodedSchema value is untouched, so its
 /// content identity does not move, even though the projected name genuinely changes.
 #[test]
 fn a_rename_leaves_core_identity_unchanged() {
@@ -53,12 +53,12 @@ fn a_rename_leaves_core_identity_unchanged() {
         "Commitment",
     );
 
-    // The Core hash did not — the stringless value carries no names.
+    // The Encoded hash did not — the stringless value carries no names.
     let after = schema.content_identity().expect("hash after rename");
     assert_eq!(before, after, "rename is hash-stable");
 }
 
-/// A structural edit — adding a field to a struct — DOES move the Core hash, so the
+/// A structural edit — adding a field to a struct — DOES move the Encoded hash, so the
 /// rename-stability above is a genuine property, not hash-insensitivity.
 #[test]
 fn a_structural_edit_moves_core_identity() {
@@ -68,19 +68,19 @@ fn a_structural_edit_moves_core_identity() {
     // A one-declaration schema and the same declaration with an extra newtype hash
     // differently.
     let commit = family.schema().declarations()[0].clone();
-    let smaller = CoreSchema::new(vec![commit.clone()]);
-    let larger = CoreSchema::new(vec![
+    let smaller = EncodedSchema::new(vec![commit.clone()]);
+    let larger = EncodedSchema::new(vec![
         commit,
-        CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        EncodedDeclaration::public(EncodedType::Newtype(EncodedNewtype::new(
             name_table::Identifier::Schema(999),
-            CoreReference::Boolean,
+            EncodedReference::Boolean,
         ))),
     ]);
 
     assert_ne!(
         smaller.content_identity().expect("small"),
         larger.content_identity().expect("large"),
-        "a structural change moves the Core hash",
+        "a structural change moves the Encoded hash",
     );
     assert_ne!(
         base,
