@@ -23,7 +23,10 @@
       {
         packages.default = craneLib.buildPackage (commonArguments // { inherit cargoArtifacts; });
         checks = {
-          build = craneLib.cargoBuild (commonArguments // { inherit cargoArtifacts; });
+          build = craneLib.cargoBuild (commonArguments // {
+            inherit cargoArtifacts;
+            doInstallCargoArtifacts = false;
+          });
           test = craneLib.cargoTest (commonArguments // {
             inherit cargoArtifacts;
             doInstallCargoArtifacts = false;
