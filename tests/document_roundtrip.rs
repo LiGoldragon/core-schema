@@ -62,7 +62,7 @@ fn declaration<'schema>(
 /// every kind of newtype (plain, scalar, and both `Vector` projections), both
 /// structs, both enumerations, and both interface lines.
 #[test]
-fn spirit_min_document_decodes_to_the_full_core_schema() {
+fn spirit_min_document_decodes_to_the_full_encoded_schema() {
     let textual = TextualSchema::schema_document().expect("build the document grammar");
     let mut names = NameTable::new(IdentifierNamespace::Schema);
     let schema = textual
