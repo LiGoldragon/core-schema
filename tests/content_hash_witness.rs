@@ -24,19 +24,18 @@ use name_table::Identifier;
 
 /// The content identity of a representative single-declaration schema — a public
 /// `Newtype` over `Boolean` at a fixed identifier index — under the current
-/// CoreSchema layout, as a lowercase hex blake3 digest. Pinned at layout 3, the
-/// version that tags interface-root-ness by `DeclarationRole` on each declaration.
-/// The value is fully deterministic: the identifier is a fixed index and the
-/// NameTable is excluded from the pre-image by construction.
-const REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_3: &str =
-    "6aa5c10c84fe4d9877ab6925cc30d2fab8bc887a09679d5edb15eefb00aaa959";
+/// CoreSchema layout, as a lowercase hex blake3 digest. Pinned at layout 5, where
+/// identifiers are namespace variants carrying `u16` locals and schemas carry
+/// ordered streaming relations. The NameTable remains excluded from the pre-image.
+const REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_5: &str =
+    "810b6fa336618ee9c229779edbe71a9b90497d8ebbf346fa7d16c58d9c74cc07";
 
 /// The representative value the constant pins: a schema of one public declaration,
 /// a `Newtype` wrapping `Boolean`. Built without a NameTable — the identifier is a
 /// fixed index and the table is not part of the content-identity pre-image.
 fn representative_schema() -> CoreSchema {
     CoreSchema::new(vec![CoreDeclaration::public(CoreType::Newtype(
-        CoreNewtype::new(Identifier::new(0), CoreReference::Boolean),
+        CoreNewtype::new(Identifier::Schema(0), CoreReference::Boolean),
     ))])
 }
 
@@ -47,7 +46,7 @@ fn representative_schema_identity_is_pinned_under_the_current_layout() {
     // definition and must be re-derived deliberately.
     assert_eq!(
         CoreSchemaDomain::layout_version().value(),
-        3,
+        5,
         "the witnessed layout version moved; re-derive the pinned hash deliberately",
     );
 
@@ -57,7 +56,7 @@ fn representative_schema_identity_is_pinned_under_the_current_layout() {
 
     assert_eq!(
         identity.to_hexadecimal(),
-        REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_3,
+        REPRESENTATIVE_SCHEMA_IDENTITY_LAYOUT_5,
         "the archived representation of a CoreSchema value changed — this is a layout \
          event: bump CoreSchemaDomain's LayoutVersion in src/declaration.rs, document \
          why the archived shape moved, and update this constant deliberately",

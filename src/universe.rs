@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, Name, NameResolver, NameTable};
+use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable};
 use structural_codec::ids::{
     CoreUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedCoreTypeId,
 };
@@ -180,7 +180,7 @@ impl CoreUniverse {
         let canonical: Vec<Identifier> = ordered
             .iter()
             .map(|member| builder.intern_name(member.name.clone()))
-            .collect();
+            .collect::<Result<_, _>>()?;
         // Phase 2: register each member, re-stamping declaration bodies' interior
         // names into the same canonical table through the source name space.
         for (member, own) in ordered.iter().zip(canonical) {
@@ -377,7 +377,7 @@ impl AssignedMember {
 
 /// Builds a [`CoreUniverse`], owning the shared [`NameTable`] so declarations are
 /// constructed against the same identifier space the universe resolves through.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct CoreUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
@@ -394,20 +394,30 @@ pub enum ScalarSlot {
     Bytes,
 }
 
+impl Default for CoreUniverseBuilder {
+    fn default() -> Self {
+        Self {
+            names: NameTable::new(IdentifierNamespace::Schema),
+            members: Vec::new(),
+            scalars: HashMap::new(),
+        }
+    }
+}
+
 impl CoreUniverseBuilder {
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Intern a name into the shared table.
-    pub fn intern(&mut self, name: &str) -> Identifier {
+    pub fn intern(&mut self, name: &str) -> Result<Identifier, name_table::NameTableError> {
         self.names.intern(Name::new(name))
     }
 
     /// Intern an owned [`Name`] into the shared table. The authority-provided path
     /// interns in canonical assigned-id order, so it controls the interning order
     /// directly rather than through the `&str` convenience above.
-    pub fn intern_name(&mut self, name: Name) -> Identifier {
+    pub fn intern_name(&mut self, name: Name) -> Result<Identifier, name_table::NameTableError> {
         self.names.intern(name)
     }
 
@@ -440,27 +450,40 @@ impl CoreUniverseBuilder {
     }
 
     /// Register a scalar leaf primitive under a well-known name and scalar slot.
-    pub fn primitive(&mut self, id: ScopedCoreTypeId, name: &str, slot: ScalarSlot) -> Identifier {
-        let identifier = self.intern(name);
+    pub fn primitive(
+        &mut self,
+        id: ScopedCoreTypeId,
+        name: &str,
+        slot: ScalarSlot,
+    ) -> Result<Identifier, name_table::NameTableError> {
+        let identifier = self.intern(name)?;
         self.scalars.insert(slot, id);
         self.register(id, identifier, MemberKind::Primitive);
-        identifier
+        Ok(identifier)
     }
 
     /// Register a scalar leaf primitive that is never a reference target (so it
     /// fills no scalar slot) — `Float`, which the fixture uses only as a standalone
     /// leaf value type.
-    pub fn primitive_leaf(&mut self, id: ScopedCoreTypeId, name: &str) -> Identifier {
-        let identifier = self.intern(name);
+    pub fn primitive_leaf(
+        &mut self,
+        id: ScopedCoreTypeId,
+        name: &str,
+    ) -> Result<Identifier, name_table::NameTableError> {
+        let identifier = self.intern(name)?;
         self.register(id, identifier, MemberKind::Primitive);
-        identifier
+        Ok(identifier)
     }
 
     /// Register the `Field` meta-type under a name.
-    pub fn field_meta(&mut self, id: ScopedCoreTypeId, name: &str) -> Identifier {
-        let identifier = self.intern(name);
+    pub fn field_meta(
+        &mut self,
+        id: ScopedCoreTypeId,
+        name: &str,
+    ) -> Result<Identifier, name_table::NameTableError> {
+        let identifier = self.intern(name)?;
         self.register(id, identifier, MemberKind::FieldMeta);
-        identifier
+        Ok(identifier)
     }
 
     /// Register a user declaration at an allocated id. The declaration's identifier

@@ -212,7 +212,7 @@ impl TextualSchema {
         };
         let reference = self.reference_from_atom(*type_id, names)?;
         let derived = reference.derived_field_name(names)?;
-        let identifier = names.intern(name_table::Name::new(derived));
+        let identifier = names.intern(name_table::Name::new(derived))?;
         Ok(CoreField::new(identifier, reference))
     }
 
@@ -246,7 +246,7 @@ impl TextualSchema {
     ) -> Result<StructuralValue, TextualError> {
         let inner = newtype
             .reference()
-            .type_atom_identifier(names)
+            .type_atom_identifier(names)?
             .ok_or(TextualError::ReifyShape("newtype inner reference"))?;
         let body = StructuralValue::Delimited(vec![StructuralValue::Atom(inner)]);
         Ok(StructuralValue::chosen(
@@ -283,7 +283,7 @@ impl TextualSchema {
     ) -> Result<StructuralValue, TextualError> {
         let type_id = field
             .reference()
-            .type_atom_identifier(names)
+            .type_atom_identifier(names)?
             .ok_or(TextualError::ReifyShape("field type reference"))?;
         // A field is nothing but the type standing at its position. Its name is NEVER
         // written (field names are illegal in every Protos surface, psyche ruling
@@ -396,22 +396,18 @@ impl TextualSchema {
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
         match reference {
-            CoreReference::Integer => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Integer,
-                names,
-            )),
-            CoreReference::String => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::String,
-                names,
-            )),
-            CoreReference::Boolean => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Boolean,
-                names,
-            )),
-            CoreReference::Bytes => Ok(Self::reference_scalar_mirror(
-                ReferenceConstructor::Bytes,
-                names,
-            )),
+            CoreReference::Integer => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Integer, names)
+            }
+            CoreReference::String => {
+                Self::reference_scalar_mirror(ReferenceConstructor::String, names)
+            }
+            CoreReference::Boolean => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Boolean, names)
+            }
+            CoreReference::Bytes => {
+                Self::reference_scalar_mirror(ReferenceConstructor::Bytes, names)
+            }
             CoreReference::Plain(identifier) => Ok(StructuralValue::chosen(
                 ReferenceConstructor::Plain.index(),
                 StructuralValue::Atom(*identifier),
@@ -424,7 +420,7 @@ impl TextualSchema {
                 let keyword = constructor
                     .keyword()
                     .ok_or(TextualError::ReifyShape("projection keyword"))?;
-                let keyword_id = names.intern(Name::new(keyword));
+                let keyword_id = names.intern(Name::new(keyword))?;
                 let inner = self.reflect_reference(argument, names)?;
                 Ok(StructuralValue::chosen(
                     constructor.index(),
@@ -448,14 +444,14 @@ impl TextualSchema {
     fn reference_scalar_mirror(
         constructor: ReferenceConstructor,
         names: &mut NameTable,
-    ) -> StructuralValue {
+    ) -> Result<StructuralValue, TextualError> {
         let keyword = constructor
             .keyword()
             .expect("a scalar constructor has a keyword");
-        StructuralValue::chosen(
+        Ok(StructuralValue::chosen(
             constructor.index(),
-            StructuralValue::Atom(names.intern(Name::new(keyword))),
-        )
+            StructuralValue::Atom(names.intern(Name::new(keyword))?),
+        ))
     }
 
     // ===== the six-slot document layout =====
@@ -559,7 +555,7 @@ impl TextualSchema {
         let name = names.intern(Name::new(
             role.interface_root_name()
                 .ok_or(TextualError::ReifyShape("interface role"))?,
-        ));
+        ))?;
         Ok(CoreDeclaration::interface(
             role,
             CoreType::Enumeration(CoreEnum::new(name, variants)),

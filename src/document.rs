@@ -19,7 +19,7 @@
 
 use std::collections::BTreeMap;
 
-use name_table::{Name, NameTable};
+use name_table::{IdentifierNamespace, Name, NameTable};
 use raw_discovery::Delimiter;
 use structural_codec::ids::{
     CoreConstructorId, PositionalSignature, ScopedCoreTypeId, StructuralRevision,
@@ -183,7 +183,7 @@ impl SchemaDocumentGrammar {
     pub fn build() -> Result<Self, UniverseError> {
         let mut author = DocumentTableAuthor::new();
         let entries: BTreeMap<ScopedCoreTypeId, StructuralEntry> = author
-            .entries()
+            .entries()?
             .into_iter()
             .map(|entry| (entry.core_type, entry))
             .collect();
@@ -224,7 +224,7 @@ struct DocumentTableAuthor {
 impl DocumentTableAuthor {
     fn new() -> Self {
         Self {
-            lexicon: NameTable::new(),
+            lexicon: NameTable::new(IdentifierNamespace::Schema),
         }
     }
 
@@ -233,8 +233,10 @@ impl DocumentTableAuthor {
     }
 
     /// A `Literal` form matching an interned keyword verbatim.
-    fn literal(&mut self, keyword: &str) -> StructuralForm {
-        StructuralForm::Literal(self.lexicon.intern(Name::new(keyword)))
+    fn literal(&mut self, keyword: &str) -> Result<StructuralForm, UniverseError> {
+        Ok(StructuralForm::Literal(
+            self.lexicon.intern(Name::new(keyword))?,
+        ))
     }
 
     /// A single-constructor entry: one disjoint decode form, the same canonical encode
@@ -252,20 +254,20 @@ impl DocumentTableAuthor {
         )
     }
 
-    fn entries(&mut self) -> Vec<StructuralEntry> {
-        vec![
-            self.type_reference_entry(),
+    fn entries(&mut self) -> Result<Vec<StructuralEntry>, UniverseError> {
+        Ok(vec![
+            self.type_reference_entry()?,
             Self::field_entry(),
             self.declaration_entry(),
             Self::types_block_entry(),
             Self::interface_variant_entry(),
             Self::interface_entry(),
-        ]
+        ])
     }
 
     /// The `TypeReference` disjoint: a scalar keyword `Literal`, a projection
     /// `keyword.TypeReference` application, or a bare name atom (`Plain`, last).
-    fn type_reference_entry(&mut self) -> StructuralEntry {
+    fn type_reference_entry(&mut self) -> Result<StructuralEntry, UniverseError> {
         let constructors = ReferenceConstructor::ALL
             .iter()
             .map(|constructor| {
@@ -273,21 +275,21 @@ impl DocumentTableAuthor {
                     None => StructuralForm::pascal_atom(),
                     Some(keyword) if constructor.single_projection().is_some() => {
                         StructuralForm::application(
-                            self.literal(keyword),
+                            self.literal(keyword)?,
                             StructuralForm::Delegate(TYPE_REFERENCE),
                         )
                     }
-                    Some(keyword) => self.literal(keyword),
+                    Some(keyword) => self.literal(keyword)?,
                 };
-                ConstructorCodec::new(
+                Ok(ConstructorCodec::new(
                     CoreConstructorId::new(TYPE_REFERENCE, constructor.index()),
                     vec![form.clone()],
                     form,
                     PositionalSignature::default(),
-                )
+                ))
             })
-            .collect();
-        StructuralEntry::new(TYPE_REFERENCE, constructors)
+            .collect::<Result<_, UniverseError>>()?;
+        Ok(StructuralEntry::new(TYPE_REFERENCE, constructors))
     }
 
     /// The `Field` meta-type: a bare positional `Type`, and nothing else. Field names

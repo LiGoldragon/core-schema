@@ -61,27 +61,49 @@ impl FixtureFamily {
         let mut builder = CoreUniverseBuilder::new();
 
         // Scalar leaf primitives. `Text` is the string leaf the rejoin chain ends in.
-        builder.primitive(INTEGER, "Integer", ScalarSlot::Integer);
-        builder.primitive(TEXT, "Text", ScalarSlot::Text);
-        builder.primitive_leaf(FLOAT, "Float");
+        builder
+            .primitive(INTEGER, "Integer", ScalarSlot::Integer)
+            .expect("fixture namespace capacity");
+        builder
+            .primitive(TEXT, "Text", ScalarSlot::Text)
+            .expect("fixture namespace capacity");
+        builder
+            .primitive_leaf(FLOAT, "Float")
+            .expect("fixture namespace capacity");
 
-        // The Field meta-type (two disjoint constructors, handled structurally).
-        builder.field_meta(FIELD, "Field");
+        // The Field meta-type has one bare positional constructor.
+        builder
+            .field_meta(FIELD, "Field")
+            .expect("fixture namespace capacity");
 
         // Newtypes over Integer.
-        let commit_sequence = builder.intern("CommitSequence");
-        let state_digest = builder.intern("StateDigest");
-        let text_name = builder.intern("Text");
-        let summary_name = builder.intern("Summary");
-        let documentation_name = builder.intern("Documentation");
-        let database_marker = builder.intern("DatabaseMarker");
+        let commit_sequence = builder
+            .intern("CommitSequence")
+            .expect("fixture namespace capacity");
+        let state_digest = builder
+            .intern("StateDigest")
+            .expect("fixture namespace capacity");
+        let text_name = builder.intern("Text").expect("fixture namespace capacity");
+        let summary_name = builder
+            .intern("Summary")
+            .expect("fixture namespace capacity");
+        let documentation_name = builder
+            .intern("Documentation")
+            .expect("fixture namespace capacity");
+        let database_marker = builder
+            .intern("DatabaseMarker")
+            .expect("fixture namespace capacity");
 
         // Struct field names are ALWAYS the type-derived snake_case name — field names
         // are illegal in text (psyche ruling 2026-07-19), so a field's name is a pure
         // function of its type. The two `StateDigest` fields therefore derive the SAME
         // name `state_digest`; position, not the name, tells them apart.
-        let commit_field = builder.intern("commit_sequence");
-        let state_field = builder.intern("state_digest");
+        let commit_field = builder
+            .intern("commit_sequence")
+            .expect("fixture namespace capacity");
+        let state_field = builder
+            .intern("state_digest")
+            .expect("fixture namespace capacity");
 
         let commit_declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
             commit_sequence,

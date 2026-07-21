@@ -116,7 +116,7 @@ impl CoreReference {
             Self::String | Self::Integer | Self::Boolean | Self::Bytes => self.clone(),
             Self::Plain(identifier) => {
                 let name = source.resolve(*identifier)?.clone();
-                Self::Plain(canonical.intern(name))
+                Self::Plain(canonical.intern(name)?)
             }
             Self::SingleTypeApplication {
                 projection,
@@ -163,16 +163,16 @@ impl CoreReference {
     pub fn type_atom_identifier<Interner: NameInterner + ?Sized>(
         &self,
         interner: &mut Interner,
-    ) -> Option<Identifier> {
+    ) -> Result<Option<Identifier>, NameTableError> {
         match self {
-            Self::Plain(identifier) => Some(*identifier),
-            Self::String => Some(interner.intern(Name::new("String"))),
-            Self::Integer => Some(interner.intern(Name::new("Integer"))),
-            Self::Boolean => Some(interner.intern(Name::new("Boolean"))),
-            Self::Bytes => Some(interner.intern(Name::new("Bytes"))),
+            Self::Plain(identifier) => Ok(Some(*identifier)),
+            Self::String => interner.intern(Name::new("String")).map(Some),
+            Self::Integer => interner.intern(Name::new("Integer")).map(Some),
+            Self::Boolean => interner.intern(Name::new("Boolean")).map(Some),
+            Self::Bytes => interner.intern(Name::new("Bytes")).map(Some),
             Self::SingleTypeApplication { .. }
             | Self::MultiTypeApplication { .. }
-            | Self::ValueApplication { .. } => None,
+            | Self::ValueApplication { .. } => Ok(None),
         }
     }
 

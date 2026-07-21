@@ -44,7 +44,7 @@ pub mod universe;
 
 pub use declaration::{
     CoreDeclaration, CoreEnum, CoreField, CoreNewtype, CoreSchema, CoreSchemaDomain, CoreStruct,
-    CoreType, CoreVariant, DeclarationRole, Visibility,
+    CoreType, CoreVariant, DeclarationRole, StreamingRelation, Visibility,
 };
 pub use document::{
     DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,

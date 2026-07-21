@@ -4,16 +4,16 @@
 
 use core_schema::declaration::{CoreNewtype, CoreType};
 use core_schema::{CoreDeclaration, CoreReference, CoreSchema, FixtureFamily};
-use name_table::{Name, NameTable};
+use name_table::{IdentifierNamespace, Name, NameTable};
 
 /// Rebuild a table identical to `original` except that identifier `target` resolves
 /// to `replacement` — a rename, expressed as a fresh table since interning is
 /// append-only. Interning order is preserved, so every other identifier keeps its
 /// index.
 fn rename(original: &NameTable, target: name_table::Identifier, replacement: &str) -> NameTable {
-    let mut renamed = NameTable::new();
+    let mut renamed = NameTable::new(IdentifierNamespace::Schema);
     for index in 0..original.len() {
-        let identifier = name_table::Identifier::new(index as u32);
+        let identifier = name_table::Identifier::Schema(u16::try_from(index).unwrap());
         let name = if identifier == target {
             Name::new(replacement)
         } else {
@@ -22,7 +22,9 @@ fn rename(original: &NameTable, target: name_table::Identifier, replacement: &st
                 .expect("known identifier")
                 .clone()
         };
-        renamed.intern(name);
+        renamed
+            .intern(name)
+            .expect("renamed fixture fits its namespace");
     }
     renamed
 }
@@ -70,7 +72,7 @@ fn a_structural_edit_moves_core_identity() {
     let larger = CoreSchema::new(vec![
         commit,
         CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
-            name_table::Identifier::new(999),
+            name_table::Identifier::Schema(999),
             CoreReference::Boolean,
         ))),
     ]);
