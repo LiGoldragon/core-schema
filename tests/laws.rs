@@ -23,14 +23,14 @@ fn standard_table() -> AddressedStructuralTable {
 }
 
 #[test]
-fn the_table_agrees_with_the_core_layout() {
+fn the_table_agrees_with_the_encoded_layout() {
     let family = FixtureFamily::build();
     let table = family.standard_table().expect("seal");
     family.universe().validate_table(&table).expect("agreement");
 }
 
 #[test]
-fn law_one_round_trip_core() {
+fn law_one_round_trip_encoded() {
     let table = standard_table();
     let evaluator = StructuralEvaluator::new(&table);
     let cases: &[(ScopedEncodedTypeId, &str)] = &[

@@ -11,7 +11,7 @@ use core_schema::fixture::{
 /// newtype yields `[inner]`, the struct yields its three fields' referenced types,
 /// and the delegate chain yields the wrapped type.
 #[test]
-fn signatures_are_derived_from_the_core_layout() {
+fn signatures_are_derived_from_the_encoded_layout() {
     let family = FixtureFamily::build();
     let universe = family.universe();
 
@@ -56,7 +56,7 @@ fn signatures_are_derived_from_the_core_layout() {
 /// The authored standard table's every codec signature equals the Encoded field
 /// signature — the deferred deviation, closed with a real Encoded layout to check.
 #[test]
-fn authored_table_agrees_with_the_core_layout() {
+fn authored_table_agrees_with_the_encoded_layout() {
     let family = FixtureFamily::build();
     let table = family.standard_table().expect("seal standard table");
     family

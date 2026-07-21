@@ -32,7 +32,7 @@ fn rename(original: &NameTable, target: name_table::Identifier, replacement: &st
 /// A rename is a NameTable-only edit: the EncodedSchema value is untouched, so its
 /// content identity does not move, even though the projected name genuinely changes.
 #[test]
-fn a_rename_leaves_core_identity_unchanged() {
+fn a_rename_leaves_encoded_identity_unchanged() {
     let family = FixtureFamily::build();
     let schema = family.schema();
     let names = family.universe().names();
@@ -61,7 +61,7 @@ fn a_rename_leaves_core_identity_unchanged() {
 /// A structural edit — adding a field to a struct — DOES move the Encoded hash, so the
 /// rename-stability above is a genuine property, not hash-insensitivity.
 #[test]
-fn a_structural_edit_moves_core_identity() {
+fn a_structural_edit_moves_encoded_identity() {
     let family = FixtureFamily::build();
     let base = family.schema().content_identity().expect("base hash");
 

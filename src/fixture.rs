@@ -193,7 +193,7 @@ impl FixtureFamily {
 
     /// The Encoded layout identity these forms target — the schema's own content hash,
     /// tying the table to the exact stringless Encoded it decodes and encodes.
-    fn core_layout(&self) -> Result<EncodedLayoutIdentity, UniverseError> {
+    fn encoded_layout(&self) -> Result<EncodedLayoutIdentity, UniverseError> {
         self.schema
             .content_identity()
             .map(|hash| EncodedLayoutIdentity(*hash.bytes()))
@@ -212,7 +212,7 @@ impl FixtureFamily {
     ) -> Result<AddressedStructuralTable, UniverseError> {
         let payload = TableIdentityPayload {
             core_universe: ENCODED_UNIVERSE,
-            core_layout_identity: self.core_layout()?,
+            core_layout_identity: self.encoded_layout()?,
             raw_profile_identity: RawProfileIdentity([1u8; 32]),
             committed_lexicon: lexicon,
             leaf_codec_contracts: Vec::new(),

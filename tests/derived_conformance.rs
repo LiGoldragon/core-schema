@@ -38,7 +38,7 @@ const FIXTURE_TYPES: [ScopedEncodedTypeId; 9] = [
 ];
 
 /// Type for type, the derive's emitted entry equals the hand-authored entry — the
-/// same core type, the same constructors, the same forms and positional signatures.
+/// same encoded type, the same constructors, the same forms and positional signatures.
 #[test]
 fn every_derived_entry_equals_the_authored_entry() {
     let authored = FixtureFamily::build()
