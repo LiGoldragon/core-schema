@@ -1,5 +1,6 @@
 //! Streaming relations are closed encoded protocol data whose construction checks
-//! the schema relation law: input endpoint, output endpoint, and resolvable values.
+//! the schema relation law: Schema-owned endpoints, role-correct interfaces, and
+//! data-type value references.
 
 use core_schema::{
     CoreDeclaration, CoreEnum, CoreNewtype, CoreReference, CoreSchema, CoreSchemaError, CoreType,
@@ -19,7 +20,11 @@ struct RelationNames {
 }
 
 fn schema_parts() -> (RelationNames, Vec<CoreDeclaration>) {
-    let mut names = NameTable::new(IdentifierNamespace::Schema);
+    schema_parts_in(IdentifierNamespace::Schema)
+}
+
+fn schema_parts_in(namespace: IdentifierNamespace) -> (RelationNames, Vec<CoreDeclaration>) {
+    let mut names = NameTable::new(namespace);
     let identifier = |names: &mut NameTable, name| names.intern(Name::new(name)).unwrap();
     let input = identifier(&mut names, "Input");
     let output = identifier(&mut names, "Output");
@@ -90,8 +95,38 @@ fn valid_relation(names: &RelationNames) -> StreamingRelation {
     )
 }
 
+fn relation_with_value_reference(
+    names: &RelationNames,
+    part: StreamingRelationReference,
+    reference: CoreReference,
+) -> StreamingRelation {
+    match part {
+        StreamingRelationReference::Token => StreamingRelation::new(
+            names.open,
+            names.acknowledged,
+            reference,
+            CoreReference::Plain(names.event),
+            CoreReference::Plain(names.close),
+        ),
+        StreamingRelationReference::Event => StreamingRelation::new(
+            names.open,
+            names.acknowledged,
+            CoreReference::Plain(names.token),
+            reference,
+            CoreReference::Plain(names.close),
+        ),
+        StreamingRelationReference::CloseToken => StreamingRelation::new(
+            names.open,
+            names.acknowledged,
+            CoreReference::Plain(names.token),
+            CoreReference::Plain(names.event),
+            reference,
+        ),
+    }
+}
+
 #[test]
-fn streaming_relation_preserves_valid_closed_encoded_links_in_order() {
+fn streaming_relation_accepts_data_type_value_references() {
     let (names, declarations) = schema_parts();
     let schema = CoreSchema::with_streaming_relations(declarations, vec![valid_relation(&names)])
         .expect("valid relation");
@@ -113,6 +148,65 @@ fn streaming_relation_preserves_valid_closed_encoded_links_in_order() {
     );
     assert_eq!(schema.input().unwrap().identifier(), names.input);
     assert_eq!(schema.output().unwrap().identifier(), names.output);
+}
+
+/// A graph may be internally consistent in the Logos namespace, but it is still
+/// foreign to CoreSchema. Matching references must not launder its identifiers.
+#[test]
+fn streaming_relation_rejects_a_fully_matching_logos_graph() {
+    let (names, declarations) = schema_parts_in(IdentifierNamespace::Logos);
+    let error = CoreSchema::with_streaming_relations(declarations, vec![valid_relation(&names)])
+        .expect_err("Logos identifiers are foreign to a CoreSchema relation boundary");
+
+    assert!(matches!(
+        error,
+        CoreSchemaError::NonSchemaIdentifier(identifier) if identifier == names.open
+    ));
+}
+
+/// Interface roots are relation topology, not values. Each value position rejects
+/// a root with a typed role error rather than treating any declared identifier as a
+/// valid reference.
+#[test]
+fn streaming_relation_rejects_interface_roots_as_value_references() {
+    let (names, declarations) = schema_parts();
+    let cases = [
+        (
+            StreamingRelationReference::Token,
+            names.input,
+            DeclarationRole::InterfaceInput,
+        ),
+        (
+            StreamingRelationReference::Event,
+            names.output,
+            DeclarationRole::InterfaceOutput,
+        ),
+        (
+            StreamingRelationReference::CloseToken,
+            names.input,
+            DeclarationRole::InterfaceInput,
+        ),
+    ];
+
+    for (part, identifier, expected_role) in cases {
+        let error = CoreSchema::with_streaming_relations(
+            declarations.clone(),
+            vec![relation_with_value_reference(
+                &names,
+                part,
+                CoreReference::Plain(identifier),
+            )],
+        )
+        .expect_err("interface roots cannot supply relation values");
+        assert!(matches!(
+            error,
+            CoreSchemaError::StreamingReferenceNotDataType {
+                part: actual_part,
+                identifier: actual_identifier,
+                actual,
+            } if actual_part == part && actual_identifier == identifier && actual == expected_role
+        ));
+    }
 }
 
 #[test]

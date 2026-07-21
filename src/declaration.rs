@@ -115,9 +115,13 @@ impl StreamingRelation {
     }
 
     /// Validate this relation in its owning schema. A relation is valid only when
-    /// its endpoints are variants of the role-correct interface enumerations and
-    /// its encoded references resolve in that same schema.
+    /// every carried identifier belongs to the Schema namespace, its endpoints are
+    /// variants of the role-correct interface enumerations, and its encoded value
+    /// references name data-type declarations in that same schema.
     pub fn validate_in(&self, schema: &CoreSchema) -> Result<(), CoreSchemaError> {
+        schema.require_schema_identifier(self.opening_input_variant)?;
+        schema.require_schema_identifier(self.acknowledgement_output_variant)?;
+
         let input = schema
             .input()
             .ok_or(CoreSchemaError::MissingInputInterface)?;
@@ -175,12 +179,9 @@ impl StreamingRelation {
             | CoreReference::Boolean
             | CoreReference::Bytes
             | CoreReference::ValueApplication { .. } => Ok(()),
-            CoreReference::Plain(identifier) => schema.declaration(*identifier).map(|_| ()).ok_or(
-                CoreSchemaError::UnresolvedStreamingReference {
-                    part,
-                    identifier: *identifier,
-                },
-            ),
+            CoreReference::Plain(identifier) => {
+                schema.streaming_data_type(*identifier, part).map(|_| ())
+            }
             CoreReference::SingleTypeApplication { argument, .. } => {
                 Self::validate_reference(schema, argument, part)
             }
@@ -255,6 +256,38 @@ impl CoreSchema {
         self.declarations
             .iter()
             .find(|declaration| declaration.identifier() == identifier)
+    }
+
+    /// The central role boundary for encoded streaming value references. A relation
+    /// value is a declared data type, never an interface root merely because that
+    /// root happens to carry the same schema-local identifier.
+    fn streaming_data_type(
+        &self,
+        identifier: Identifier,
+        part: StreamingRelationReference,
+    ) -> Result<&CoreDeclaration, CoreSchemaError> {
+        self.require_schema_identifier(identifier)?;
+        let declaration = self
+            .declaration(identifier)
+            .ok_or(CoreSchemaError::UnresolvedStreamingReference { part, identifier })?;
+        if declaration.role() != DeclarationRole::DataType {
+            return Err(CoreSchemaError::StreamingReferenceNotDataType {
+                part,
+                identifier,
+                actual: declaration.role(),
+            });
+        }
+        Ok(declaration)
+    }
+
+    /// CoreSchema is Schema-owned data. Relation boundaries must not accept a
+    /// foreign namespace identifier simply because another declaration matches it.
+    fn require_schema_identifier(&self, identifier: Identifier) -> Result<(), CoreSchemaError> {
+        if matches!(identifier, Identifier::Schema(_)) {
+            Ok(())
+        } else {
+            Err(CoreSchemaError::NonSchemaIdentifier(identifier))
+        }
     }
 
     fn validate_streaming_relations(&self) -> Result<(), CoreSchemaError> {

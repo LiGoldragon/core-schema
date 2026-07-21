@@ -54,6 +54,14 @@ pub enum CoreSchemaError {
         part: StreamingRelationReference,
         identifier: Identifier,
     },
+    #[error(
+        "streaming {part} reference {identifier} must name a data-type declaration, not {actual:?}"
+    )]
+    StreamingReferenceNotDataType {
+        part: StreamingRelationReference,
+        identifier: Identifier,
+        actual: crate::declaration::DeclarationRole,
+    },
 }
 
 /// The universe bridge — allocating type ids, deriving positional signatures from
