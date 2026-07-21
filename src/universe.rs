@@ -15,7 +15,7 @@
 //!
 //! [`validate_table`]: CoreUniverse::validate_table
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 use structural_codec::ids::{
@@ -140,26 +140,13 @@ impl CoreUniverse {
     /// typed boundary rather than silently converted by their spelling.
     pub fn from_assignment(
         universe: CoreUniverseId,
-        members: Vec<AssignedMember>,
+        mut members: Vec<AssignedMember>,
         names: NameTable,
     ) -> Result<Self, UniverseError> {
-        if names.namespace() != IdentifierNamespace::Schema {
-            return Err(UniverseError::WrongNameTableHome {
-                actual: names.namespace(),
-            });
-        }
-        let mut ordered = members;
-        ordered.sort_by_key(AssignedMember::local);
-        for adjacent in ordered.windows(2) {
-            if adjacent[0].local == adjacent[1].local {
-                return Err(UniverseError::DuplicateAssignedIdentity(adjacent[0].local));
-            }
-        }
+        members.sort_by_key(AssignedMember::local);
 
         let mut builder = CoreUniverseBuilder::from_name_table(names);
-        for member in ordered {
-            Self::validate_schema_identifier(member.identifier)?;
-            builder.names().resolve(member.identifier)?;
+        for member in members {
             let id = ScopedCoreTypeId::new(universe, member.local);
             match member.kind {
                 AssignedKind::ScalarPrimitive(slot) => {
@@ -168,18 +155,11 @@ impl CoreUniverse {
                 AssignedKind::LeafPrimitive => builder.leaf_at(id, member.identifier),
                 AssignedKind::FieldMeta => builder.field_meta_at(id, member.identifier),
                 AssignedKind::Declaration(declaration) => {
-                    Self::validate_declaration_identifiers(&declaration, builder.names())?;
-                    if declaration.identifier() != member.identifier {
-                        return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
-                            assigned: member.identifier,
-                            declared: declaration.identifier(),
-                        });
-                    }
-                    builder.declaration(id, declaration);
+                    builder.assigned_declaration(id, member.identifier, declaration);
                 }
             }
         }
-        Ok(builder.build(universe))
+        builder.build(universe)
     }
 
     fn validate_schema_identifier(identifier: Identifier) -> Result<(), UniverseError> {
@@ -430,7 +410,7 @@ impl AssignedMember {
 pub struct CoreUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
-    scalars: HashMap<ScalarSlot, ScopedCoreTypeId>,
+    scalar_registrations: Vec<(ScalarSlot, ScopedCoreTypeId)>,
 }
 
 /// Which scalar leaf a primitive registration fills. Naming the slot as data keeps
@@ -448,7 +428,7 @@ impl Default for CoreUniverseBuilder {
         Self {
             names: NameTable::new(IdentifierNamespace::Schema),
             members: Vec::new(),
-            scalars: HashMap::new(),
+            scalar_registrations: Vec::new(),
         }
     }
 }
@@ -464,7 +444,7 @@ impl CoreUniverseBuilder {
         Self {
             names,
             members: Vec::new(),
-            scalars: HashMap::new(),
+            scalar_registrations: Vec::new(),
         }
     }
 
@@ -480,7 +460,7 @@ impl CoreUniverseBuilder {
     /// Register a scalar leaf primitive that is a reference target at an already
     /// interned identifier, filling its scalar slot.
     pub fn primitive_at(&mut self, id: ScopedCoreTypeId, name: Identifier, slot: ScalarSlot) {
-        self.scalars.insert(slot, id);
+        self.scalar_registrations.push((slot, id));
         self.register(id, name, MemberKind::Primitive);
     }
 
@@ -507,7 +487,7 @@ impl CoreUniverseBuilder {
         slot: ScalarSlot,
     ) -> Result<Identifier, name_table::NameTableError> {
         let identifier = self.intern(name)?;
-        self.scalars.insert(slot, id);
+        self.scalar_registrations.push((slot, id));
         self.register(id, identifier, MemberKind::Primitive);
         Ok(identifier)
     }
@@ -541,25 +521,79 @@ impl CoreUniverseBuilder {
     ///
     /// [`intern`]: CoreUniverseBuilder::intern
     pub fn declaration(&mut self, id: ScopedCoreTypeId, declaration: CoreDeclaration) {
-        let name = declaration.identifier();
-        self.register(id, name, MemberKind::Declaration(declaration));
+        self.assigned_declaration(id, declaration.identifier(), declaration);
     }
 
-    /// Seal the universe, building the id and name registries.
-    pub fn build(self, universe: CoreUniverseId) -> CoreUniverse {
-        let mut by_id = BTreeMap::new();
-        let mut by_name = HashMap::new();
-        for (index, member) in self.members.iter().enumerate() {
-            by_id.insert(member.id, index);
-            by_name.insert(member.name, member.id);
+    /// Register an authority-assigned declaration without validating it early. The
+    /// final seal compares the assigned member identifier to the declaration's own
+    /// identifier alongside every other universe invariant.
+    fn assigned_declaration(
+        &mut self,
+        id: ScopedCoreTypeId,
+        assigned: Identifier,
+        declaration: CoreDeclaration,
+    ) {
+        self.register(id, assigned, MemberKind::Declaration(declaration));
+    }
+
+    /// Seal the universe. This is the sole validation point for NameTable ownership,
+    /// every identifier and reference, assignment/declaration agreement, and registry
+    /// uniqueness; maps are created only after those checks have passed.
+    pub fn build(self, universe: CoreUniverseId) -> Result<CoreUniverse, UniverseError> {
+        if self.names.namespace() != IdentifierNamespace::Schema {
+            return Err(UniverseError::WrongNameTableHome {
+                actual: self.names.namespace(),
+            });
         }
+
+        let mut member_ids = BTreeSet::new();
+        let mut member_names = HashSet::new();
+        for member in &self.members {
+            CoreUniverse::validate_schema_identifier(member.name)?;
+            self.names.resolve(member.name)?;
+            if let MemberKind::Declaration(declaration) = &member.kind {
+                CoreUniverse::validate_declaration_identifiers(declaration, &self.names)?;
+                if declaration.identifier() != member.name {
+                    return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
+                        assigned: member.name,
+                        declared: declaration.identifier(),
+                    });
+                }
+            }
+            if !member_ids.insert(member.id) {
+                return Err(UniverseError::DuplicateMemberIdentity(member.id));
+            }
+            if !member_names.insert(member.name) {
+                return Err(UniverseError::DuplicateMemberName(member.name));
+            }
+        }
+
+        let mut scalar_slots = HashSet::new();
+        for (slot, _) in &self.scalar_registrations {
+            if !scalar_slots.insert(*slot) {
+                return Err(UniverseError::DuplicateScalarSlot(*slot));
+            }
+        }
+
+        let by_id = self
+            .members
+            .iter()
+            .enumerate()
+            .map(|(index, member)| (member.id, index))
+            .collect();
+        let by_name = self
+            .members
+            .iter()
+            .map(|member| (member.name, member.id))
+            .collect();
+        let scalars: HashMap<_, _> = self.scalar_registrations.into_iter().collect();
         let scalar = |slot: ScalarSlot| {
-            self.scalars
+            scalars
                 .get(&slot)
                 .copied()
                 .unwrap_or_else(|| ScopedCoreTypeId::new(universe, u32::MAX))
         };
-        CoreUniverse {
+        Ok(CoreUniverse {
             universe,
             integer: scalar(ScalarSlot::Integer),
             text: scalar(ScalarSlot::Text),
@@ -569,7 +603,7 @@ impl CoreUniverseBuilder {
             members: self.members,
             by_id,
             by_name,
-        }
+        })
     }
 }
 

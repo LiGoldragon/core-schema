@@ -4,7 +4,9 @@
 
 use core_schema::{
     CoreDeclaration, CoreEnum, CoreNewtype, CoreReference, CoreSchema, CoreSchemaError, CoreType,
-    CoreVariant, DeclarationRole, StreamingRelation, StreamingRelationReference,
+    CoreVariant, DeclarationRole, MultiTypeReferenceProjection, SingleTypeReferenceProjection,
+    StreamingReferenceForm, StreamingRelation, StreamingRelationReference,
+    ValueReferenceProjection,
 };
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 
@@ -167,6 +169,67 @@ fn streaming_relation_rejects_a_fully_matching_logos_graph() {
 /// Interface roots are relation topology, not values. Each value position rejects
 /// a root with a typed role error rather than treating any declared identifier as a
 /// valid reference.
+/// Every non-Plain reference class is rejected at each streaming value position.
+/// Generic applications deliberately fail as applications: their otherwise-valid
+/// Plain arguments are not recursively accepted as relation values.
+#[test]
+fn streaming_relation_requires_plain_data_type_references_at_every_value_position() {
+    let (names, declarations) = schema_parts();
+    let cases = [
+        (CoreReference::String, StreamingReferenceForm::Scalar),
+        (CoreReference::Integer, StreamingReferenceForm::Scalar),
+        (CoreReference::Boolean, StreamingReferenceForm::Scalar),
+        (CoreReference::Bytes, StreamingReferenceForm::Scalar),
+        (
+            CoreReference::ValueApplication {
+                projection: ValueReferenceProjection::Bytes,
+                value: 32,
+            },
+            StreamingReferenceForm::BytesLength,
+        ),
+        (
+            CoreReference::SingleTypeApplication {
+                projection: SingleTypeReferenceProjection::Optional,
+                argument: Box::new(CoreReference::Plain(names.token)),
+            },
+            StreamingReferenceForm::SingleTypeApplication,
+        ),
+        (
+            CoreReference::MultiTypeApplication {
+                projection: MultiTypeReferenceProjection::Map,
+                arguments: vec![
+                    CoreReference::Plain(names.token),
+                    CoreReference::Plain(names.event),
+                ],
+            },
+            StreamingReferenceForm::MultiTypeApplication,
+        ),
+    ];
+
+    for part in [
+        StreamingRelationReference::Token,
+        StreamingRelationReference::Event,
+        StreamingRelationReference::CloseToken,
+    ] {
+        for (reference, expected_form) in &cases {
+            let error = CoreSchema::with_streaming_relations(
+                declarations.clone(),
+                vec![relation_with_value_reference(
+                    &names,
+                    part,
+                    reference.clone(),
+                )],
+            )
+            .expect_err("only Plain data-type identifiers may fill streaming value positions");
+            assert!(matches!(
+                error,
+                CoreSchemaError::StreamingReferenceMustNameDataType { part: actual_part, form }
+                    if actual_part == part && form == *expected_form
+            ));
+        }
+    }
+}
+
 #[test]
 fn streaming_relation_rejects_interface_roots_as_value_references() {
     let (names, declarations) = schema_parts();

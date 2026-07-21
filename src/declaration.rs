@@ -5,10 +5,13 @@
 //!
 //! [`NameTable`]: name_table::NameTable
 
-use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
+use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion, PortableArchive};
 use name_table::{Identifier, NameResolver, NameTableError};
 
-use crate::error::{CoreIdentityError, CoreSchemaError, StreamingRelationReference};
+use crate::error::{
+    CoreIdentityError, CoreSchemaError, CoreSchemaLoadError, StreamingReferenceForm,
+    StreamingRelationReference,
+};
 use crate::reference::CoreReference;
 
 /// The hash domain for stringless CoreSchema values, layout-version tagged. A
@@ -21,7 +24,8 @@ impl HashDomain for CoreSchemaDomain {
         DomainSeparation::Contextual {
             context: "core-schema 2026 stringless core schema layer",
             // Layout 5: `StreamingRelation` is closed encoded protocol data on
-            // CoreSchema. Layout 4 introduced namespace-variant `u16` identifiers;
+            // CoreSchema. The validated archive DTO intentionally preserves this
+            // exact canonical field layout. Layout 4 introduced namespace-variant `u16` identifiers;
             // both layout changes are intentional producer-to-consumer breaks. Old
             // schema packages are regenerated with their accompanying NameTable rather
             // than decoded as sliced identifiers. Layout 3 carried interface roles.
@@ -54,10 +58,37 @@ impl HashDomain for CoreSchemaDomain {
 /// rather than a separate interface-slot type. Trigger to revisit: the accepted
 /// document-kind design review, which may reshape how interface roots and the
 /// document kinds relate.
-#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct CoreSchema {
     declarations: Vec<CoreDeclaration>,
     streaming_relations: Vec<StreamingRelation>,
+}
+
+/// The private wire representation of [`CoreSchema`]. Keeping rkyv on this DTO
+/// makes archive bytes a validated boundary rather than a second public CoreSchema
+/// constructor. Its fields deliberately match CoreSchema's canonical layout so
+/// content identity remains over the same stringless data.
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq)]
+struct CoreSchemaArchive {
+    declarations: Vec<CoreDeclaration>,
+    streaming_relations: Vec<StreamingRelation>,
+}
+
+impl From<&CoreSchema> for CoreSchemaArchive {
+    fn from(schema: &CoreSchema) -> Self {
+        Self {
+            declarations: schema.declarations.clone(),
+            streaming_relations: schema.streaming_relations.clone(),
+        }
+    }
+}
+
+impl TryFrom<CoreSchemaArchive> for CoreSchema {
+    type Error = CoreSchemaError;
+
+    fn try_from(archive: CoreSchemaArchive) -> Result<Self, Self::Error> {
+        Self::with_streaming_relations(archive.declarations, archive.streaming_relations)
+    }
 }
 
 /// One reusable subscription protocol relation, entirely in encoded data.
@@ -174,20 +205,34 @@ impl StreamingRelation {
         part: StreamingRelationReference,
     ) -> Result<(), CoreSchemaError> {
         match reference {
-            CoreReference::String
-            | CoreReference::Integer
-            | CoreReference::Boolean
-            | CoreReference::Bytes
-            | CoreReference::ValueApplication { .. } => Ok(()),
             CoreReference::Plain(identifier) => {
                 schema.streaming_data_type(*identifier, part).map(|_| ())
             }
-            CoreReference::SingleTypeApplication { argument, .. } => {
-                Self::validate_reference(schema, argument, part)
+            CoreReference::String
+            | CoreReference::Integer
+            | CoreReference::Boolean
+            | CoreReference::Bytes => Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+                part,
+                form: StreamingReferenceForm::Scalar,
+            }),
+            CoreReference::ValueApplication { .. } => {
+                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+                    part,
+                    form: StreamingReferenceForm::BytesLength,
+                })
             }
-            CoreReference::MultiTypeApplication { arguments, .. } => arguments
-                .iter()
-                .try_for_each(|argument| Self::validate_reference(schema, argument, part)),
+            CoreReference::SingleTypeApplication { .. } => {
+                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+                    part,
+                    form: StreamingReferenceForm::SingleTypeApplication,
+                })
+            }
+            CoreReference::MultiTypeApplication { .. } => {
+                Err(CoreSchemaError::StreamingReferenceMustNameDataType {
+                    part,
+                    form: StreamingReferenceForm::MultiTypeApplication,
+                })
+            }
         }
     }
 }
@@ -297,10 +342,25 @@ impl CoreSchema {
         Ok(())
     }
 
-    /// This schema's content identity, blake3 over its stringless rkyv bytes with
-    /// the NameTable excluded by construction — a rename cannot move it.
+    /// Archive this schema through its private wire DTO. The domain type itself
+    /// intentionally has no raw rkyv surface, so every load must pass semantic
+    /// relation validation.
+    pub fn to_archive_bytes(&self) -> Result<rkyv::util::AlignedVec, CoreSchemaLoadError> {
+        Ok(CoreSchemaArchive::from(self).to_archive_bytes()?)
+    }
+
+    /// Load and validate a CoreSchema archive. Archive corruption and a valid rkyv
+    /// payload that violates the CoreSchema relation law are distinct typed errors.
+    pub fn from_archive_bytes(bytes: &[u8]) -> Result<Self, CoreSchemaLoadError> {
+        let archive = CoreSchemaArchive::from_archive_bytes(bytes)?;
+        Ok(Self::try_from(archive)?)
+    }
+
+    /// This schema's content identity, blake3 over the private DTO's canonical
+    /// stringless rkyv bytes with the NameTable excluded by construction — a rename
+    /// cannot move it.
     pub fn content_identity(&self) -> Result<ContentHash<CoreSchemaDomain>, CoreIdentityError> {
-        Ok(ContentHash::of_core(self)?)
+        Ok(ContentHash::of_core(&CoreSchemaArchive::from(self))?)
     }
 }
 
@@ -570,5 +630,70 @@ impl CoreVariant {
 
     pub fn payload(&self) -> Option<&CoreReference> {
         self.payload.as_ref()
+    }
+}
+
+#[cfg(test)]
+mod archive_tests {
+    use content_identity::PortableArchive;
+    use name_table::Identifier;
+
+    use super::{
+        CoreDeclaration, CoreEnum, CoreNewtype, CoreReference, CoreSchema, CoreSchemaArchive,
+        CoreType, CoreVariant, DeclarationRole, StreamingRelation,
+    };
+    use crate::error::{CoreSchemaError, CoreSchemaLoadError};
+
+    #[test]
+    fn serialized_invalid_dto_is_rejected_at_the_semantic_archive_boundary() {
+        let input = Identifier::Schema(0);
+        let output = Identifier::Schema(1);
+        let open = Identifier::Schema(2);
+        let acknowledged = Identifier::Schema(3);
+        let token = Identifier::Schema(4);
+        let event = Identifier::Schema(5);
+        let close = Identifier::Schema(6);
+        let archive = CoreSchemaArchive {
+            declarations: vec![
+                CoreDeclaration::interface(
+                    DeclarationRole::InterfaceInput,
+                    CoreType::Enumeration(CoreEnum::new(input, vec![CoreVariant::new(open, None)])),
+                ),
+                CoreDeclaration::interface(
+                    DeclarationRole::InterfaceOutput,
+                    CoreType::Enumeration(CoreEnum::new(
+                        output,
+                        vec![CoreVariant::new(acknowledged, None)],
+                    )),
+                ),
+                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                    token,
+                    CoreReference::Integer,
+                ))),
+                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                    event,
+                    CoreReference::Integer,
+                ))),
+                CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+                    close,
+                    CoreReference::Integer,
+                ))),
+            ],
+            streaming_relations: vec![StreamingRelation::new(
+                open,
+                acknowledged,
+                CoreReference::Integer,
+                CoreReference::Plain(event),
+                CoreReference::Plain(close),
+            )],
+        };
+        let bytes = archive.to_archive_bytes().expect("serialize crafted DTO");
+
+        assert!(matches!(
+            CoreSchema::from_archive_bytes(&bytes),
+            Err(CoreSchemaLoadError::Schema(
+                CoreSchemaError::StreamingReferenceMustNameDataType { .. }
+            ))
+        ));
     }
 }

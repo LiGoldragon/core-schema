@@ -5,10 +5,10 @@
 use core_schema::declaration::{CoreField, CoreStruct, CoreType};
 use core_schema::{
     AssignedKind, AssignedMember, CoreDeclaration, CoreNewtype, CoreReference, CoreUniverse,
-    UniverseError,
+    CoreUniverseBuilder, ScalarSlot, UniverseError,
 };
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
-use structural_codec::ids::CoreUniverseId;
+use structural_codec::ids::{CoreUniverseId, ScopedCoreTypeId};
 
 fn schema_table(names: &[&str]) -> (NameTable, Vec<Identifier>) {
     let mut table = NameTable::new(IdentifierNamespace::Schema);
@@ -184,6 +184,63 @@ fn duplicate_assigned_identity_is_rejected() {
     );
     assert!(matches!(
         clash,
-        Err(UniverseError::DuplicateAssignedIdentity(3))
+        Err(UniverseError::DuplicateMemberIdentity(id)) if id == ScopedCoreTypeId::new(CoreUniverseId::new(7), 3)
+    ));
+}
+
+/// The universal seal checks every builder path before any registry map exists:
+/// NameTable home and resolution, Schema ownership, and both registry keys cannot
+/// be bypassed by direct builder use.
+#[test]
+fn direct_builder_seal_rejects_wrong_home_foreign_unresolved_and_duplicate_members() {
+    let wrong_home =
+        CoreUniverseBuilder::from_name_table(NameTable::new(IdentifierNamespace::Logos))
+            .build(CoreUniverseId::new(8));
+    assert!(matches!(
+        wrong_home,
+        Err(UniverseError::WrongNameTableHome {
+            actual: IdentifierNamespace::Logos
+        })
+    ));
+
+    let mut foreign_builder = CoreUniverseBuilder::new();
+    foreign_builder.primitive_at(
+        ScopedCoreTypeId::new(CoreUniverseId::new(8), 0),
+        Identifier::Logos(0),
+        ScalarSlot::Integer,
+    );
+    assert!(matches!(
+        foreign_builder.build(CoreUniverseId::new(8)),
+        Err(UniverseError::WrongSchemaIdentifier(Identifier::Logos(0)))
+    ));
+
+    let mut unresolved_builder = CoreUniverseBuilder::new();
+    unresolved_builder.leaf_at(
+        ScopedCoreTypeId::new(CoreUniverseId::new(8), 0),
+        Identifier::Schema(99),
+    );
+    assert!(matches!(
+        unresolved_builder.build(CoreUniverseId::new(8)),
+        Err(UniverseError::Names(_))
+    ));
+
+    let mut duplicate_id_builder = CoreUniverseBuilder::new();
+    let alpha = duplicate_id_builder.intern("Alpha").unwrap();
+    let beta = duplicate_id_builder.intern("Beta").unwrap();
+    let duplicate_id = ScopedCoreTypeId::new(CoreUniverseId::new(8), 0);
+    duplicate_id_builder.leaf_at(duplicate_id, alpha);
+    duplicate_id_builder.leaf_at(duplicate_id, beta);
+    assert!(matches!(
+        duplicate_id_builder.build(CoreUniverseId::new(8)),
+        Err(UniverseError::DuplicateMemberIdentity(id)) if id == duplicate_id
+    ));
+
+    let mut duplicate_name_builder = CoreUniverseBuilder::new();
+    let alpha = duplicate_name_builder.intern("Alpha").unwrap();
+    duplicate_name_builder.leaf_at(ScopedCoreTypeId::new(CoreUniverseId::new(8), 0), alpha);
+    duplicate_name_builder.leaf_at(ScopedCoreTypeId::new(CoreUniverseId::new(8), 1), alpha);
+    assert!(matches!(
+        duplicate_name_builder.build(CoreUniverseId::new(8)),
+        Err(UniverseError::DuplicateMemberName(name)) if name == alpha
     ));
 }

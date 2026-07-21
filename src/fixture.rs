@@ -135,7 +135,9 @@ impl FixtureFamily {
         builder.declaration(DOCUMENTATION, documentation_declaration.clone());
         builder.declaration(DATABASE_MARKER, database_declaration.clone());
 
-        let universe = builder.build(CORE_UNIVERSE);
+        let universe = builder
+            .build(CORE_UNIVERSE)
+            .expect("fixture universe satisfies the universal builder seal");
         let schema = CoreSchema::new(vec![
             commit_declaration,
             state_declaration,

@@ -50,7 +50,8 @@ pub use document::{
     DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,
 };
 pub use error::{
-    CoreIdentityError, CoreSchemaError, StreamingRelationReference, TextualError, UniverseError,
+    CoreIdentityError, CoreSchemaError, CoreSchemaLoadError, StreamingReferenceForm,
+    StreamingRelationReference, TextualError, UniverseError,
 };
 pub use fixture::FixtureFamily;
 pub use reference::{

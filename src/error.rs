@@ -33,6 +33,26 @@ impl std::fmt::Display for StreamingRelationReference {
     }
 }
 
+/// The non-plain reference form rejected at a streaming value position.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamingReferenceForm {
+    Scalar,
+    BytesLength,
+    SingleTypeApplication,
+    MultiTypeApplication,
+}
+
+impl std::fmt::Display for StreamingReferenceForm {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Scalar => formatter.write_str("scalar"),
+            Self::BytesLength => formatter.write_str("Bytes length"),
+            Self::SingleTypeApplication => formatter.write_str("single-type generic application"),
+            Self::MultiTypeApplication => formatter.write_str("multi-type generic application"),
+        }
+    }
+}
+
 /// A CoreSchema relation or its schema-local identifiers did not meet the encoded
 /// schema contract.
 #[derive(Debug, Clone, thiserror::Error)]
@@ -62,6 +82,20 @@ pub enum CoreSchemaError {
         identifier: Identifier,
         actual: crate::declaration::DeclarationRole,
     },
+    #[error("streaming {part} reference must name a data-type declaration, not a {form} reference")]
+    StreamingReferenceMustNameDataType {
+        part: StreamingRelationReference,
+        form: StreamingReferenceForm,
+    },
+}
+
+/// A failure at the validated CoreSchema archive boundary.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CoreSchemaLoadError {
+    #[error(transparent)]
+    Archive(#[from] ArchiveError),
+    #[error(transparent)]
+    Schema(#[from] CoreSchemaError),
 }
 
 /// The universe bridge — allocating type ids, deriving positional signatures from
@@ -75,6 +109,12 @@ pub enum UniverseError {
     UnresolvedName(Identifier),
     #[error("no universe type is registered under id {0:?}")]
     UnknownType(ScopedCoreTypeId),
+    #[error("two universe members use type id {0:?}")]
+    DuplicateMemberIdentity(ScopedCoreTypeId),
+    #[error("two universe members use Schema identifier {0}")]
+    DuplicateMemberName(Identifier),
+    #[error("two scalar primitive registrations fill the {0:?} slot")]
+    DuplicateScalarSlot(crate::universe::ScalarSlot),
     #[error(
         "type {core_type:?} has {members} Core constructor(s), but the table entry has {codecs}"
     )]
