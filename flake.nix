@@ -33,11 +33,16 @@
           });
           doc = craneLib.cargoDoc (commonArguments // {
             inherit cargoArtifacts;
+            doInstallCargoArtifacts = false;
             RUSTDOCFLAGS = "-D warnings";
           });
-          fmt = craneLib.cargoFmt { inherit src; };
+          fmt = craneLib.cargoFmt {
+            inherit src;
+            doInstallCargoArtifacts = false;
+          };
           clippy = craneLib.cargoClippy (commonArguments // {
             inherit cargoArtifacts;
+            doInstallCargoArtifacts = false;
             cargoClippyExtraArgs = "--all-targets -- -D warnings";
           });
         };
