@@ -5,7 +5,7 @@
 use content_identity::ArchiveError;
 use name_table::{Identifier, IdentifierNamespace, NameTableError};
 use raw_discovery::RecognizeError;
-use structural_codec::ids::ScopedCoreTypeId;
+use structural_codec::ids::{CoreUniverseId, ScopedCoreTypeId};
 use structural_codec::{DecodeError, EncodeError, TableError};
 
 /// Computing a stringless-Core value's content identity failed.
@@ -111,6 +111,12 @@ pub enum UniverseError {
     UnknownType(ScopedCoreTypeId),
     #[error("two universe members use type id {0:?}")]
     DuplicateMemberIdentity(ScopedCoreTypeId),
+    #[error("universe member {member:?} belongs to {actual:?}, but this build seals {expected:?}")]
+    UniverseScopeMismatch {
+        expected: CoreUniverseId,
+        actual: CoreUniverseId,
+        member: ScopedCoreTypeId,
+    },
     #[error("two universe members use Schema identifier {0}")]
     DuplicateMemberName(Identifier),
     #[error("two scalar primitive registrations fill the {0:?} slot")]
@@ -134,10 +140,6 @@ pub enum UniverseError {
     },
     #[error("the structural table holds no entry for Core type {0:?}")]
     TableEntryAbsent(ScopedCoreTypeId),
-    #[error(
-        "the authority assignment registers two members at the same local identity {0}; an identity names exactly one thing"
-    )]
-    DuplicateAssignedIdentity(u32),
     #[error("the authority supplied {actual:?} as the NameTable home; CoreSchema owns Schema")]
     WrongNameTableHome { actual: IdentifierNamespace },
     #[error("the authority supplied non-Schema identifier {0} for CoreSchema")]

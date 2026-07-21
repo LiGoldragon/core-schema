@@ -170,33 +170,79 @@ impl CoreUniverse {
         }
     }
 
+    fn validate_scoped_type_id(
+        expected: CoreUniverseId,
+        member: ScopedCoreTypeId,
+    ) -> Result<(), UniverseError> {
+        if member.universe == expected {
+            Ok(())
+        } else {
+            Err(UniverseError::UniverseScopeMismatch {
+                expected,
+                actual: member.universe,
+                member,
+            })
+        }
+    }
+
     fn validate_reference_identifiers(
         reference: &CoreReference,
         names: &NameTable,
+        members: &[UniverseType],
+        scalar_registrations: &[(ScalarSlot, ScopedCoreTypeId)],
+        expected_universe: CoreUniverseId,
     ) -> Result<(), UniverseError> {
+        let validate_scalar = |slot| {
+            scalar_registrations
+                .iter()
+                .filter(|(registered, _)| *registered == slot)
+                .try_for_each(|(_, id)| Self::validate_scoped_type_id(expected_universe, *id))
+        };
         match reference {
-            CoreReference::String
-            | CoreReference::Integer
-            | CoreReference::Boolean
-            | CoreReference::Bytes
-            | CoreReference::ValueApplication { .. } => Ok(()),
+            CoreReference::String => validate_scalar(ScalarSlot::Text),
+            CoreReference::Integer => validate_scalar(ScalarSlot::Integer),
+            CoreReference::Boolean => validate_scalar(ScalarSlot::Boolean),
+            CoreReference::Bytes => validate_scalar(ScalarSlot::Bytes),
             CoreReference::Plain(identifier) => {
                 Self::validate_schema_identifier(*identifier)?;
                 names.resolve(*identifier)?;
-                Ok(())
+                members
+                    .iter()
+                    .filter(|member| member.name == *identifier)
+                    .try_for_each(|member| {
+                        Self::validate_scoped_type_id(expected_universe, member.id)
+                    })
             }
             CoreReference::SingleTypeApplication { argument, .. } => {
-                Self::validate_reference_identifiers(argument, names)
+                Self::validate_reference_identifiers(
+                    argument,
+                    names,
+                    members,
+                    scalar_registrations,
+                    expected_universe,
+                )
             }
-            CoreReference::MultiTypeApplication { arguments, .. } => arguments
-                .iter()
-                .try_for_each(|argument| Self::validate_reference_identifiers(argument, names)),
+            CoreReference::MultiTypeApplication { arguments, .. } => {
+                arguments.iter().try_for_each(|argument| {
+                    Self::validate_reference_identifiers(
+                        argument,
+                        names,
+                        members,
+                        scalar_registrations,
+                        expected_universe,
+                    )
+                })
+            }
+            CoreReference::ValueApplication { .. } => Ok(()),
         }
     }
 
     fn validate_declaration_identifiers(
         declaration: &CoreDeclaration,
         names: &NameTable,
+        members: &[UniverseType],
+        scalar_registrations: &[(ScalarSlot, ScopedCoreTypeId)],
+        expected_universe: CoreUniverseId,
     ) -> Result<(), UniverseError> {
         let validate_identifier = |identifier| {
             Self::validate_schema_identifier(identifier)?;
@@ -205,13 +251,23 @@ impl CoreUniverse {
         };
         validate_identifier(declaration.identifier())?;
         match declaration.value() {
-            CoreType::Newtype(newtype) => {
-                Self::validate_reference_identifiers(newtype.reference(), names)
-            }
+            CoreType::Newtype(newtype) => Self::validate_reference_identifiers(
+                newtype.reference(),
+                names,
+                members,
+                scalar_registrations,
+                expected_universe,
+            ),
             CoreType::Struct(structure) => {
                 for field in structure.fields() {
                     validate_identifier(field.identifier())?;
-                    Self::validate_reference_identifiers(field.reference(), names)?;
+                    Self::validate_reference_identifiers(
+                        field.reference(),
+                        names,
+                        members,
+                        scalar_registrations,
+                        expected_universe,
+                    )?;
                 }
                 Ok(())
             }
@@ -219,7 +275,13 @@ impl CoreUniverse {
                 for variant in enumeration.variants() {
                     validate_identifier(variant.identifier())?;
                     if let Some(payload) = variant.payload() {
-                        Self::validate_reference_identifiers(payload, names)?;
+                        Self::validate_reference_identifiers(
+                            payload,
+                            names,
+                            members,
+                            scalar_registrations,
+                            expected_universe,
+                        )?;
                     }
                 }
                 Ok(())
@@ -537,8 +599,9 @@ impl CoreUniverseBuilder {
     }
 
     /// Seal the universe. This is the sole validation point for NameTable ownership,
-    /// every identifier and reference, assignment/declaration agreement, and registry
-    /// uniqueness; maps are created only after those checks have passed.
+    /// every identifier and reachable scoped reference, assignment/declaration agreement,
+    /// universe scope, and registry uniqueness; maps are created only after those checks
+    /// have passed.
     pub fn build(self, universe: CoreUniverseId) -> Result<CoreUniverse, UniverseError> {
         if self.names.namespace() != IdentifierNamespace::Schema {
             return Err(UniverseError::WrongNameTableHome {
@@ -551,8 +614,15 @@ impl CoreUniverseBuilder {
         for member in &self.members {
             CoreUniverse::validate_schema_identifier(member.name)?;
             self.names.resolve(member.name)?;
+            CoreUniverse::validate_scoped_type_id(universe, member.id)?;
             if let MemberKind::Declaration(declaration) = &member.kind {
-                CoreUniverse::validate_declaration_identifiers(declaration, &self.names)?;
+                CoreUniverse::validate_declaration_identifiers(
+                    declaration,
+                    &self.names,
+                    &self.members,
+                    &self.scalar_registrations,
+                    universe,
+                )?;
                 if declaration.identifier() != member.name {
                     return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
                         assigned: member.name,
