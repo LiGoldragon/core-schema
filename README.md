@@ -9,7 +9,8 @@ step; the immediately following rename train will rename that API separately.
 - `Identifier` is a closed namespace variant with a namespace-local `u16`
   allocation. `core-schema` owns `IdentifierNamespace::Schema`; it never
   reconstructs flat identifiers or converts between namespaces.
-- Each `NameTable` has one Schema home slice. A consumer composes completed
+- A generic `NameTable` has the home namespace chosen by its owner.
+  `core-schema`-owned tables have a Schema home slice; a consumer composes completed
   foreign slices with `NameTable::compose`, which borrows them without copying,
   flattening, renumbering, or legacy fallback behavior.
 - The existing positional field-name ban remains: fields are bare type references

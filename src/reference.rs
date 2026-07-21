@@ -94,54 +94,6 @@ impl CoreReference {
         Ok(self.type_name(names)?.field_name())
     }
 
-    /// This reference with every name identifier re-stamped from a `source` name
-    /// space into a `canonical` one: a `Plain` reference's target name is resolved
-    /// through `source` and re-interned into `canonical`, and each generic
-    /// application re-stamps its argument(s) the same way. Scalar leaves and value
-    /// applications carry no identifier, so they are returned unchanged. This is how
-    /// the authority-provided universe path
-    /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
-    /// makes a `Plain` cross-reference's stored identifier a deterministic function of
-    /// the canonical interning order rather than of the order the source parsed.
-    pub fn restamp<Source, Canonical>(
-        &self,
-        source: &Source,
-        canonical: &mut Canonical,
-    ) -> Result<Self, NameTableError>
-    where
-        Source: NameResolver + ?Sized,
-        Canonical: NameInterner + ?Sized,
-    {
-        Ok(match self {
-            Self::String | Self::Integer | Self::Boolean | Self::Bytes => self.clone(),
-            Self::Plain(identifier) => {
-                let name = source.resolve(*identifier)?.clone();
-                Self::Plain(canonical.intern(name)?)
-            }
-            Self::SingleTypeApplication {
-                projection,
-                argument,
-            } => Self::SingleTypeApplication {
-                projection: *projection,
-                argument: Box::new(argument.restamp(source, canonical)?),
-            },
-            Self::MultiTypeApplication {
-                projection,
-                arguments,
-            } => Self::MultiTypeApplication {
-                projection: *projection,
-                arguments: arguments
-                    .iter()
-                    .map(|argument| argument.restamp(source, canonical))
-                    .collect::<Result<_, _>>()?,
-            },
-            Self::ValueApplication { projection, value } => Self::ValueApplication {
-                projection: *projection,
-                value: *value,
-            },
-        })
-    }
-
     /// Classify a type name met at a reference position into a by-kind reference:
     /// a scalar keyword becomes the matching leaf, any other name a `Plain`
     /// reference carrying the identifier the name already interned to. This is the

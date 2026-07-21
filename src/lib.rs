@@ -49,7 +49,9 @@ pub use declaration::{
 pub use document::{
     DOCUMENT_SLOTS, DeclarationConstructor, ReferenceConstructor, SchemaDocumentGrammar,
 };
-pub use error::{CoreIdentityError, TextualError, UniverseError};
+pub use error::{
+    CoreIdentityError, CoreSchemaError, StreamingRelationReference, TextualError, UniverseError,
+};
 pub use fixture::FixtureFamily;
 pub use reference::{
     CoreReference, MultiTypeReferenceProjection, SingleTypeReferenceProjection,

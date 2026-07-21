@@ -17,7 +17,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 
-use name_table::{Identifier, IdentifierNamespace, Name, NameResolver, NameTable};
+use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 use structural_codec::ids::{
     CoreUniverseId, FIXTURE_UNIVERSE, PositionalSignature, ScopedCoreTypeId,
 };
@@ -133,39 +133,21 @@ impl CoreUniverse {
         CoreSchema::new(declarations)
     }
 
-    /// Build a universe from central-authority-assigned identities — the
-    /// authority-provided construction path. Members are registered in ascending
-    /// assigned-local order and their names interned in that same canonical order, so
-    /// the id registry, the name indices, and every declaration's own identifier are a
-    /// deterministic function of the assignment alone, never of the order an ingestion
-    /// parsed its declarations. Two ingestions of one declared schema that received the
-    /// same assignment therefore build byte-identical Core values — the identity
-    /// keystone realized at the schema layer, replacing parse-order interning.
-    ///
-    /// The self-contained [`CoreUniverseBuilder`] path (see [`crate::fixture`]) is
-    /// retained as the local / offline mode.
-    ///
-    /// LEAN `authority-provided-universe` (realizes v2 keystone / L5 at the schema
-    /// layer): a universe is built from authority assignments keyed by declared name,
-    /// with names canonically interned by ascending assigned local, and each
-    /// declaration fully re-stamped ([`CoreType::restamp`]) into that canonical name
-    /// space — its own name, every field and variant name, and the target of every
-    /// `Plain` cross-reference. Interior names are resolved through the `source` name
-    /// space the assignment's declarations were parsed against and re-interned in a
-    /// fixed positional walk (ascending local, then declaration bodies in order), so
-    /// the built universe's bytes are a pure function of (assignment, declaration
-    /// content), never of parse order. Revision trigger: the authority returning
-    /// explicit per-name index assignments so the NameTable order is dictated rather
-    /// than derived, or an elided-string-field spelling ruling (bead .31) that changes
-    /// what a derived field name canonicalises to.
-    pub fn from_assignment<Source>(
+    /// Build a universe from authority-assigned members and their complete composed
+    /// name table. This transfers the table unchanged: its Schema home and every
+    /// borrowed slice are retained, and no name is resolved and re-interned. CoreSchema
+    /// members must use Schema identifiers; foreign identifiers are rejected at this
+    /// typed boundary rather than silently converted by their spelling.
+    pub fn from_assignment(
         universe: CoreUniverseId,
         members: Vec<AssignedMember>,
-        source: &Source,
-    ) -> Result<Self, UniverseError>
-    where
-        Source: NameResolver + ?Sized,
-    {
+        names: NameTable,
+    ) -> Result<Self, UniverseError> {
+        if names.namespace() != IdentifierNamespace::Schema {
+            return Err(UniverseError::WrongNameTableHome {
+                actual: names.namespace(),
+            });
+        }
         let mut ordered = members;
         ordered.sort_by_key(AssignedMember::local);
         for adjacent in ordered.windows(2) {
@@ -173,29 +155,96 @@ impl CoreUniverse {
                 return Err(UniverseError::DuplicateAssignedIdentity(adjacent[0].local));
             }
         }
-        let mut builder = CoreUniverseBuilder::new();
-        // Phase 1: intern every member's declared name in canonical ascending-local
-        // order, so declaration names hold the lowest canonical identifiers in a
-        // parse-order-independent order.
-        let canonical: Vec<Identifier> = ordered
-            .iter()
-            .map(|member| builder.intern_name(member.name.clone()))
-            .collect::<Result<_, _>>()?;
-        // Phase 2: register each member, re-stamping declaration bodies' interior
-        // names into the same canonical table through the source name space.
-        for (member, own) in ordered.iter().zip(canonical) {
+
+        let mut builder = CoreUniverseBuilder::from_name_table(names);
+        for member in ordered {
+            Self::validate_schema_identifier(member.identifier)?;
+            builder.names().resolve(member.identifier)?;
             let id = ScopedCoreTypeId::new(universe, member.local);
-            match &member.kind {
-                AssignedKind::ScalarPrimitive(slot) => builder.primitive_at(id, own, *slot),
-                AssignedKind::LeafPrimitive => builder.leaf_at(id, own),
-                AssignedKind::FieldMeta => builder.field_meta_at(id, own),
+            match member.kind {
+                AssignedKind::ScalarPrimitive(slot) => {
+                    builder.primitive_at(id, member.identifier, slot)
+                }
+                AssignedKind::LeafPrimitive => builder.leaf_at(id, member.identifier),
+                AssignedKind::FieldMeta => builder.field_meta_at(id, member.identifier),
                 AssignedKind::Declaration(declaration) => {
-                    let restamped = declaration.restamp(own, source, builder.names_mut())?;
-                    builder.declaration(id, restamped);
+                    Self::validate_declaration_identifiers(&declaration, builder.names())?;
+                    if declaration.identifier() != member.identifier {
+                        return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
+                            assigned: member.identifier,
+                            declared: declaration.identifier(),
+                        });
+                    }
+                    builder.declaration(id, declaration);
                 }
             }
         }
         Ok(builder.build(universe))
+    }
+
+    fn validate_schema_identifier(identifier: Identifier) -> Result<(), UniverseError> {
+        if identifier.namespace() == IdentifierNamespace::Schema {
+            Ok(())
+        } else {
+            Err(UniverseError::WrongSchemaIdentifier(identifier))
+        }
+    }
+
+    fn validate_reference_identifiers(
+        reference: &CoreReference,
+        names: &NameTable,
+    ) -> Result<(), UniverseError> {
+        match reference {
+            CoreReference::String
+            | CoreReference::Integer
+            | CoreReference::Boolean
+            | CoreReference::Bytes
+            | CoreReference::ValueApplication { .. } => Ok(()),
+            CoreReference::Plain(identifier) => {
+                Self::validate_schema_identifier(*identifier)?;
+                names.resolve(*identifier)?;
+                Ok(())
+            }
+            CoreReference::SingleTypeApplication { argument, .. } => {
+                Self::validate_reference_identifiers(argument, names)
+            }
+            CoreReference::MultiTypeApplication { arguments, .. } => arguments
+                .iter()
+                .try_for_each(|argument| Self::validate_reference_identifiers(argument, names)),
+        }
+    }
+
+    fn validate_declaration_identifiers(
+        declaration: &CoreDeclaration,
+        names: &NameTable,
+    ) -> Result<(), UniverseError> {
+        let validate_identifier = |identifier| {
+            Self::validate_schema_identifier(identifier)?;
+            names.resolve(identifier)?;
+            Ok::<_, UniverseError>(())
+        };
+        validate_identifier(declaration.identifier())?;
+        match declaration.value() {
+            CoreType::Newtype(newtype) => {
+                Self::validate_reference_identifiers(newtype.reference(), names)
+            }
+            CoreType::Struct(structure) => {
+                for field in structure.fields() {
+                    validate_identifier(field.identifier())?;
+                    Self::validate_reference_identifiers(field.reference(), names)?;
+                }
+                Ok(())
+            }
+            CoreType::Enumeration(enumeration) => {
+                for variant in enumeration.variants() {
+                    validate_identifier(variant.identifier())?;
+                    if let Some(payload) = variant.payload() {
+                        Self::validate_reference_identifiers(payload, names)?;
+                    }
+                }
+                Ok(())
+            }
+        }
     }
 
     fn member(&self, id: ScopedCoreTypeId) -> Result<&UniverseType, UniverseError> {
@@ -336,38 +385,38 @@ pub enum AssignedKind {
     LeafPrimitive,
     /// The `Field` meta-type.
     FieldMeta,
-    /// A user declaration, carried whole so its visibility and
-    /// [`DeclarationRole`](crate::declaration::DeclarationRole) are preserved through
-    /// the build; its value's own name and every interior name are re-stamped to the
-    /// canonically interned identifiers when the universe is built.
+    /// A user declaration, carried whole so its visibility, role, identifiers, and
+    /// references are preserved exactly through the build.
     Declaration(CoreDeclaration),
 }
 
-/// One central-authority-assigned universe member: the local identity the authority
-/// minted or bound for it, the declared name it carries, and its kind. A universe
-/// built from a set of these ([`CoreUniverse::from_assignment`]) is a deterministic
-/// function of the assignment, so two ingestions of one declared schema bind identical
-/// identities whatever order each parsed.
+/// One central-authority-assigned universe member: its authority-minted local type
+/// identity, the exact schema identifier it owns, and its kind. The identifier is
+/// data, never reconstructed from a resolved name.
 #[derive(Clone, Debug)]
 pub struct AssignedMember {
     local: u32,
-    name: Name,
+    identifier: Identifier,
     kind: AssignedKind,
 }
 
 impl AssignedMember {
-    pub fn new(local: u32, name: Name, kind: AssignedKind) -> Self {
-        Self { local, name, kind }
+    pub fn new(local: u32, identifier: Identifier, kind: AssignedKind) -> Self {
+        Self {
+            local,
+            identifier,
+            kind,
+        }
     }
 
     /// The local identity the authority assigned — the `local` half of the member's
-    /// [`ScopedCoreTypeId`] and the key its canonical registration order sorts by.
+    /// [`ScopedCoreTypeId`] and the key its registration order sorts by.
     pub fn local(&self) -> u32 {
         self.local
     }
 
-    pub fn name(&self) -> &Name {
-        &self.name
+    pub fn identifier(&self) -> Identifier {
+        self.identifier
     }
 
     pub fn kind(&self) -> &AssignedKind {
@@ -409,22 +458,23 @@ impl CoreUniverseBuilder {
         Self::default()
     }
 
+    /// Build against an already completed Schema-home table, preserving its complete
+    /// composed slice set rather than copying or flattening it.
+    pub fn from_name_table(names: NameTable) -> Self {
+        Self {
+            names,
+            members: Vec::new(),
+            scalars: HashMap::new(),
+        }
+    }
+
+    pub fn names(&self) -> &NameTable {
+        &self.names
+    }
+
     /// Intern a name into the shared table.
     pub fn intern(&mut self, name: &str) -> Result<Identifier, name_table::NameTableError> {
         self.names.intern(Name::new(name))
-    }
-
-    /// Intern an owned [`Name`] into the shared table. The authority-provided path
-    /// interns in canonical assigned-id order, so it controls the interning order
-    /// directly rather than through the `&str` convenience above.
-    pub fn intern_name(&mut self, name: Name) -> Result<Identifier, name_table::NameTableError> {
-        self.names.intern(name)
-    }
-
-    /// A mutable borrow of the shared table, for a re-stamp that resolves interior
-    /// names from a source name space and re-interns them here in canonical order.
-    pub fn names_mut(&mut self) -> &mut NameTable {
-        &mut self.names
     }
 
     /// Register a scalar leaf primitive that is a reference target at an already

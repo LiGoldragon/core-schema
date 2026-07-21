@@ -1,12 +1,6 @@
-//! The identity keystone at the schema layer. A universe built from central-authority
-//! assignments ([`CoreUniverse::from_assignment`]) is a deterministic function of the
-//! assignment, never of the order an ingestion parsed its declarations: names are
-//! interned in canonical assigned-id order and declarations registered in that order.
-//! Two ingestions of one declared schema that received the same assignment therefore
-//! build byte-identical Core values — the repair of the "same thing, re-ID'ed" defect
-//! that parse-order interning caused. The stronger cross-process proof (the authority
-//! binding identical identities to the same declared schema) lives at the sema-storage
-//! layer; this proves the schema-side plumbing the authority feeds is order-blind.
+//! Authority assignments preserve the complete supplied Schema NameTable and every
+//! encoded identifier. The bridge never resolves a name merely to re-intern it into
+//! another namespace.
 
 use core_schema::declaration::{CoreField, CoreStruct, CoreType};
 use core_schema::{
@@ -16,199 +10,177 @@ use core_schema::{
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 use structural_codec::ids::CoreUniverseId;
 
-/// Two scalar newtypes — `Alpha` at local 0, `Beta` at local 1 — as an assignment, with
-/// the input vector in the given order. The name→local mapping is held constant; only
-/// the vector order varies, which the authority path must neutralise.
-fn scalar_newtypes(order: [(&str, u32); 2]) -> Vec<AssignedMember> {
-    order
-        .into_iter()
-        .map(|(name, local)| {
-            AssignedMember::new(
-                local,
-                Name::new(name),
-                // The newtype's placeholder identifier is re-stamped to the canonically
-                // interned one by `from_assignment`; a scalar reference carries no
-                // identifier, so the member's Core content is fixed by its assignment.
-                AssignedKind::Declaration(CoreDeclaration::public(CoreType::Newtype(
-                    CoreNewtype::new(Identifier::Schema(0), CoreReference::Integer),
-                ))),
-            )
-        })
-        .collect()
+fn schema_table(names: &[&str]) -> (NameTable, Vec<Identifier>) {
+    let mut table = NameTable::new(IdentifierNamespace::Schema);
+    let identifiers = names
+        .iter()
+        .map(|name| table.intern(Name::new(*name)).expect("fixture fits"))
+        .collect();
+    (table, identifiers)
 }
 
-/// The universe is a function of the assignment alone: the same name→local mapping,
-/// presented in opposite vector orders, yields the same universe id, the same canonical
-/// name interning, and a byte-identical declared schema.
+/// The authority boundary transfers its complete table and stored identifiers
+/// verbatim. In particular, declarations, field names, and Plain targets are not
+/// converted by resolving their spelling.
 #[test]
-fn authority_assignment_is_order_independent() {
-    let universe = CoreUniverseId::new(42);
-    // Scalar newtype references carry no name identifier, so the source name space is
-    // never consulted for these members; an empty schema slice exercises the plumbing.
-    let source = NameTable::new(IdentifierNamespace::Schema);
-    let forward = CoreUniverse::from_assignment(
-        universe,
-        scalar_newtypes([("Alpha", 0), ("Beta", 1)]),
-        &source,
-    )
-    .expect("build forward");
-    let reverse = CoreUniverse::from_assignment(
-        universe,
-        scalar_newtypes([("Beta", 1), ("Alpha", 0)]),
-        &source,
-    )
-    .expect("build reverse");
+fn authority_assignment_preserves_schema_identifiers_and_complete_table() {
+    let (names, identifiers) = schema_table(&["Record", "label", "Target"]);
+    let [record, label, target] = identifiers.as_slice() else {
+        panic!("fixture identifiers")
+    };
+    let declaration = CoreDeclaration::public(CoreType::Struct(CoreStruct::new(
+        *record,
+        vec![CoreField::new(*label, CoreReference::Plain(*target))],
+    )));
+    let target_declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        *target,
+        CoreReference::Integer,
+    )));
 
-    assert_eq!(
-        forward.universe(),
-        reverse.universe(),
-        "same minted universe"
-    );
-
-    // Names are interned in canonical assigned-id order, so `Alpha` (local 0) is always
-    // identifier 0 and `Beta` (local 1) always identifier 1 — never the parse order.
-    for built in [&forward, &reverse] {
-        assert_eq!(
-            built
-                .names()
-                .resolve(Identifier::Schema(0))
-                .unwrap()
-                .as_str(),
-            "Alpha"
-        );
-        assert_eq!(
-            built
-                .names()
-                .resolve(Identifier::Schema(1))
-                .unwrap()
-                .as_str(),
-            "Beta"
-        );
-    }
-
-    assert_eq!(
-        forward
-            .declared_schema()
-            .content_identity()
-            .expect("hash forward"),
-        reverse
-            .declared_schema()
-            .content_identity()
-            .expect("hash reverse"),
-        "the authority path binds identical identities regardless of parse order",
-    );
-}
-
-/// A two-declaration schema whose declarations reference each other and carry an
-/// explicit field name, built against a source name space interned in the given
-/// order. `Record` (local 0) is a struct `{ label: Text, link: Target }`; `Target`
-/// (local 1) is a newtype over `Integer`. Varying `interning_order` varies the
-/// source identifiers every interior name (`label`, `link`, and the `Plain` target
-/// of `link`) carries, standing in for two ingestions that parsed the same declared
-/// schema in different orders. The name→local assignment is held constant.
-fn cross_referencing_schema(interning_order: [&str; 4]) -> (NameTable, Vec<AssignedMember>) {
-    let mut names = NameTable::new(IdentifierNamespace::Schema);
-    for name in interning_order {
-        names
-            .intern(Name::new(name))
-            .expect("test schema fits its namespace");
-    }
-    // Re-interning returns the already-assigned identifier (dedupe), so these read the
-    // source identities the chosen order produced.
-    let record = names
-        .intern(Name::new("Record"))
-        .expect("test schema fits its namespace");
-    let label = names
-        .intern(Name::new("label"))
-        .expect("test schema fits its namespace");
-    let link = names
-        .intern(Name::new("link"))
-        .expect("test schema fits its namespace");
-    let target = names
-        .intern(Name::new("Target"))
-        .expect("test schema fits its namespace");
-
-    let record_type = CoreType::Struct(CoreStruct::new(
-        record,
+    let universe = CoreUniverse::from_assignment(
+        CoreUniverseId::new(42),
         vec![
-            CoreField::new(label, CoreReference::String),
-            CoreField::new(link, CoreReference::Plain(target)),
+            AssignedMember::new(9, *target, AssignedKind::Declaration(target_declaration)),
+            AssignedMember::new(3, *record, AssignedKind::Declaration(declaration.clone())),
         ],
-    ));
-    let target_type = CoreType::Newtype(CoreNewtype::new(target, CoreReference::Integer));
+        names,
+    )
+    .expect("Schema-home assignment is accepted");
 
-    let members = vec![
-        AssignedMember::new(
-            0,
-            Name::new("Record"),
-            AssignedKind::Declaration(CoreDeclaration::public(record_type)),
-        ),
-        AssignedMember::new(
-            1,
-            Name::new("Target"),
-            AssignedKind::Declaration(CoreDeclaration::public(target_type)),
-        ),
-    ];
-    (names, members)
+    let stored = universe
+        .core_type(structural_codec::ids::ScopedCoreTypeId::new(
+            CoreUniverseId::new(42),
+            3,
+        ))
+        .expect("record declaration");
+    assert_eq!(
+        stored,
+        declaration.value(),
+        "stored declaration is unmodified"
+    );
+    assert_eq!(
+        universe.names().resolve(*target).unwrap().as_str(),
+        "Target",
+        "the supplied Schema home slice moved intact",
+    );
 }
 
-/// The interior re-stamping keystone: field names and `Plain` cross-references are
-/// re-stamped from the source name space into the canonical one, so a schema whose
-/// declarations reference each other and carry explicit field names hashes
-/// identically whatever order each ingestion interned. Two source name spaces that
-/// assign the four names different identifiers, under one shared assignment, build
-/// byte-identical Core values.
+/// A completed foreign slice remains borrowed by the moved Schema-home table; it is
+/// not copied, flattened, or renumbered while the CoreSchema member retains its own
+/// Schema identifier.
 #[test]
-fn interior_names_are_re_stamped_to_canonical_order() {
-    let universe = CoreUniverseId::new(101);
-    let (mut source_forward, members_forward) =
-        cross_referencing_schema(["Record", "label", "link", "Target"]);
-    let (mut source_reverse, members_reverse) =
-        cross_referencing_schema(["Target", "link", "label", "Record"]);
+fn assignment_transfers_complete_composed_name_table() {
+    let mut logos = NameTable::new(IdentifierNamespace::Logos);
+    let foreign = logos.intern(Name::new("LogosToken")).expect("fixture fits");
+    let mut schema = NameTable::new(IdentifierNamespace::Schema);
+    let record = schema.intern(Name::new("Record")).expect("fixture fits");
+    let composed = schema.compose(&logos).expect("borrow Logos slice");
 
-    // The two source name spaces genuinely disagree on identifiers, so a build that
-    // carried interior identifiers through verbatim would hash differently — the test
-    // bites only because the re-stamping neutralises that.
-    assert_ne!(
-        source_forward
-            .intern(Name::new("Target"))
-            .expect("test schema fits its namespace"),
-        source_reverse
-            .intern(Name::new("Target"))
-            .expect("test schema fits its namespace"),
-        "the two parse orders must assign different source identifiers",
-    );
-
-    let forward = CoreUniverse::from_assignment(universe, members_forward, &source_forward)
-        .expect("build forward");
-    let reverse = CoreUniverse::from_assignment(universe, members_reverse, &source_reverse)
-        .expect("build reverse");
+    let universe = CoreUniverse::from_assignment(
+        CoreUniverseId::new(43),
+        vec![AssignedMember::new(
+            0,
+            record,
+            AssignedKind::Declaration(CoreDeclaration::public(CoreType::Newtype(
+                CoreNewtype::new(record, CoreReference::Integer),
+            ))),
+        )],
+        composed,
+    )
+    .expect("Schema member with borrowed foreign slice is valid");
 
     assert_eq!(
-        forward
-            .declared_schema()
-            .content_identity()
-            .expect("hash forward"),
-        reverse
-            .declared_schema()
-            .content_identity()
-            .expect("hash reverse"),
-        "field names and Plain cross-references re-stamped to canonical order — the \
-         built schema's bytes are a pure function of (assignment, declaration content)",
+        universe.names().resolve(foreign).unwrap().as_str(),
+        "LogosToken",
+        "the complete borrowed Logos slice is retained"
     );
+    assert_eq!(foreign, Identifier::Logos(0));
 }
 
-/// An identity names exactly one thing (law 2, at the schema layer): an assignment that
-/// registers two members at the same local is rejected loudly rather than silently
-/// collapsing them.
+/// A Logos identifier remains Logos even in a composed Schema table. The authority
+/// boundary rejects it rather than turning its spelling into a Schema identifier.
+#[test]
+fn logos_identifier_is_never_silently_converted_to_schema() {
+    let mut logos = NameTable::new(IdentifierNamespace::Logos);
+    let logos_record = logos.intern(Name::new("Record")).expect("fixture fits");
+    assert_eq!(logos_record, Identifier::Logos(0));
+
+    let schema = NameTable::new(IdentifierNamespace::Schema);
+    let composed = schema.compose(&logos).expect("borrow Logos slice");
+    let declaration = CoreDeclaration::public(CoreType::Newtype(CoreNewtype::new(
+        logos_record,
+        CoreReference::Integer,
+    )));
+    let error = CoreUniverse::from_assignment(
+        CoreUniverseId::new(101),
+        vec![AssignedMember::new(
+            0,
+            logos_record,
+            AssignedKind::Declaration(declaration),
+        )],
+        composed,
+    )
+    .expect_err("foreign Core identifier is rejected");
+
+    assert!(matches!(
+        error,
+        UniverseError::WrongSchemaIdentifier(Identifier::Logos(0))
+    ));
+}
+
+#[test]
+fn non_schema_name_table_home_is_rejected() {
+    let mut logos = NameTable::new(IdentifierNamespace::Logos);
+    let identifier = logos.intern(Name::new("Record")).expect("fixture fits");
+    let error = CoreUniverse::from_assignment(
+        CoreUniverseId::new(7),
+        vec![AssignedMember::new(
+            0,
+            identifier,
+            AssignedKind::LeafPrimitive,
+        )],
+        logos,
+    )
+    .expect_err("CoreSchema owns a Schema-home table");
+    assert!(matches!(
+        error,
+        UniverseError::WrongNameTableHome {
+            actual: IdentifierNamespace::Logos
+        }
+    ));
+}
+
+#[test]
+fn declaration_identifier_must_match_assigned_identifier() {
+    let (names, identifiers) = schema_table(&["Assigned", "Stored"]);
+    let error = CoreUniverse::from_assignment(
+        CoreUniverseId::new(7),
+        vec![AssignedMember::new(
+            0,
+            identifiers[0],
+            AssignedKind::Declaration(CoreDeclaration::public(CoreType::Newtype(
+                CoreNewtype::new(identifiers[1], CoreReference::Integer),
+            ))),
+        )],
+        names,
+    )
+    .expect_err("mismatched authority and declaration identities are rejected");
+    assert!(matches!(
+        error,
+        UniverseError::AssignedDeclarationIdentifierMismatch { .. }
+    ));
+}
+
 #[test]
 fn duplicate_assigned_identity_is_rejected() {
-    let universe = CoreUniverseId::new(7);
-    let source = NameTable::new(IdentifierNamespace::Schema);
+    let (names, identifiers) = schema_table(&["Alpha", "Beta"]);
     let clash = CoreUniverse::from_assignment(
-        universe,
-        scalar_newtypes([("Alpha", 3), ("Beta", 3)]),
-        &source,
+        CoreUniverseId::new(7),
+        vec![
+            AssignedMember::new(3, identifiers[0], AssignedKind::LeafPrimitive),
+            AssignedMember::new(3, identifiers[1], AssignedKind::LeafPrimitive),
+        ],
+        names,
     );
     assert!(matches!(
         clash,

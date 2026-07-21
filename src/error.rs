@@ -3,7 +3,7 @@
 //! validation, and the Textual round-trip.
 
 use content_identity::ArchiveError;
-use name_table::NameTableError;
+use name_table::{Identifier, IdentifierNamespace, NameTableError};
 use raw_discovery::RecognizeError;
 use structural_codec::ids::ScopedCoreTypeId;
 use structural_codec::{DecodeError, EncodeError, TableError};
@@ -15,6 +15,47 @@ pub enum CoreIdentityError {
     Archive(#[from] ArchiveError),
 }
 
+/// Which encoded reference in a streaming relation failed validation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum StreamingRelationReference {
+    Token,
+    Event,
+    CloseToken,
+}
+
+impl std::fmt::Display for StreamingRelationReference {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Token => formatter.write_str("token"),
+            Self::Event => formatter.write_str("event"),
+            Self::CloseToken => formatter.write_str("close-token"),
+        }
+    }
+}
+
+/// A CoreSchema relation or its schema-local identifiers did not meet the encoded
+/// schema contract.
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum CoreSchemaError {
+    #[error("CoreSchema requires Schema identifiers, not {0}")]
+    NonSchemaIdentifier(Identifier),
+    #[error("a streaming relation requires an input interface enumeration")]
+    MissingInputInterface,
+    #[error("a streaming relation requires an output interface enumeration")]
+    MissingOutputInterface,
+    #[error("the {0:?} interface root must be an enumeration")]
+    InterfaceRootNotEnumeration(crate::declaration::DeclarationRole),
+    #[error("streaming opening endpoint {0} is not an input-interface variant")]
+    OpeningEndpointNotInputVariant(Identifier),
+    #[error("streaming acknowledgement endpoint {0} is not an output-interface variant")]
+    AcknowledgementEndpointNotOutputVariant(Identifier),
+    #[error("streaming {part} reference {identifier} does not resolve in this schema")]
+    UnresolvedStreamingReference {
+        part: StreamingRelationReference,
+        identifier: Identifier,
+    },
+}
+
 /// The universe bridge — allocating type ids, deriving positional signatures from
 /// the Core layout, or validating an authored structural table against that
 /// layout — failed. `SignatureMismatch` is the loud failure the deferred
@@ -23,7 +64,7 @@ pub enum CoreIdentityError {
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum UniverseError {
     #[error("no universe type is allocated for the name identifier {0}")]
-    UnresolvedName(name_table::Identifier),
+    UnresolvedName(Identifier),
     #[error("no universe type is registered under id {0:?}")]
     UnknownType(ScopedCoreTypeId),
     #[error(
@@ -49,6 +90,17 @@ pub enum UniverseError {
         "the authority assignment registers two members at the same local identity {0}; an identity names exactly one thing"
     )]
     DuplicateAssignedIdentity(u32),
+    #[error("the authority supplied {actual:?} as the NameTable home; CoreSchema owns Schema")]
+    WrongNameTableHome { actual: IdentifierNamespace },
+    #[error("the authority supplied non-Schema identifier {0} for CoreSchema")]
+    WrongSchemaIdentifier(Identifier),
+    #[error(
+        "the authority member identifier {assigned} does not equal declaration identifier {declared}"
+    )]
+    AssignedDeclarationIdentifierMismatch {
+        assigned: Identifier,
+        declared: Identifier,
+    },
     #[error(
         "a by-kind type application ({0}) has no allocated universe type in this proof-of-concept universe"
     )]

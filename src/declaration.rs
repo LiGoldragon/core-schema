@@ -6,9 +6,9 @@
 //! [`NameTable`]: name_table::NameTable
 
 use content_identity::{ContentHash, DomainSeparation, HashDomain, LayoutVersion};
-use name_table::{Identifier, NameInterner, NameResolver, NameTableError};
+use name_table::{Identifier, NameResolver, NameTableError};
 
-use crate::error::CoreIdentityError;
+use crate::error::{CoreIdentityError, CoreSchemaError, StreamingRelationReference};
 use crate::reference::CoreReference;
 
 /// The hash domain for stringless CoreSchema values, layout-version tagged. A
@@ -113,23 +113,107 @@ impl StreamingRelation {
     pub fn close_token(&self) -> &CoreReference {
         &self.close_token
     }
+
+    /// Validate this relation in its owning schema. A relation is valid only when
+    /// its endpoints are variants of the role-correct interface enumerations and
+    /// its encoded references resolve in that same schema.
+    pub fn validate_in(&self, schema: &CoreSchema) -> Result<(), CoreSchemaError> {
+        let input = schema
+            .input()
+            .ok_or(CoreSchemaError::MissingInputInterface)?;
+        let CoreType::Enumeration(input) = input.value() else {
+            return Err(CoreSchemaError::InterfaceRootNotEnumeration(
+                DeclarationRole::InterfaceInput,
+            ));
+        };
+        if !input
+            .variants()
+            .iter()
+            .any(|variant| variant.identifier() == self.opening_input_variant)
+        {
+            return Err(CoreSchemaError::OpeningEndpointNotInputVariant(
+                self.opening_input_variant,
+            ));
+        }
+
+        let output = schema
+            .output()
+            .ok_or(CoreSchemaError::MissingOutputInterface)?;
+        let CoreType::Enumeration(output) = output.value() else {
+            return Err(CoreSchemaError::InterfaceRootNotEnumeration(
+                DeclarationRole::InterfaceOutput,
+            ));
+        };
+        if !output
+            .variants()
+            .iter()
+            .any(|variant| variant.identifier() == self.acknowledgement_output_variant)
+        {
+            return Err(CoreSchemaError::AcknowledgementEndpointNotOutputVariant(
+                self.acknowledgement_output_variant,
+            ));
+        }
+
+        Self::validate_reference(schema, self.token(), StreamingRelationReference::Token)?;
+        Self::validate_reference(schema, self.event(), StreamingRelationReference::Event)?;
+        Self::validate_reference(
+            schema,
+            self.close_token(),
+            StreamingRelationReference::CloseToken,
+        )?;
+        Ok(())
+    }
+
+    fn validate_reference(
+        schema: &CoreSchema,
+        reference: &CoreReference,
+        part: StreamingRelationReference,
+    ) -> Result<(), CoreSchemaError> {
+        match reference {
+            CoreReference::String
+            | CoreReference::Integer
+            | CoreReference::Boolean
+            | CoreReference::Bytes
+            | CoreReference::ValueApplication { .. } => Ok(()),
+            CoreReference::Plain(identifier) => schema.declaration(*identifier).map(|_| ()).ok_or(
+                CoreSchemaError::UnresolvedStreamingReference {
+                    part,
+                    identifier: *identifier,
+                },
+            ),
+            CoreReference::SingleTypeApplication { argument, .. } => {
+                Self::validate_reference(schema, argument, part)
+            }
+            CoreReference::MultiTypeApplication { arguments, .. } => arguments
+                .iter()
+                .try_for_each(|argument| Self::validate_reference(schema, argument, part)),
+        }
+    }
 }
 
 impl CoreSchema {
     /// A schema over the given declaration substrate, without streaming relations.
     pub fn new(declarations: Vec<CoreDeclaration>) -> Self {
-        Self::with_streaming_relations(declarations, Vec::new())
+        Self {
+            declarations,
+            streaming_relations: Vec::new(),
+        }
     }
 
-    /// A schema over declarations and closed streaming protocol relations.
+    /// Construct a schema with closed streaming protocol relations. The relation law
+    /// is checked against this exact declaration substrate: opening endpoints are
+    /// input-interface variants, acknowledgement endpoints are output-interface
+    /// variants, and every encoded relation reference resolves here.
     pub fn with_streaming_relations(
         declarations: Vec<CoreDeclaration>,
         streaming_relations: Vec<StreamingRelation>,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, CoreSchemaError> {
+        let schema = Self {
             declarations,
             streaming_relations,
-        }
+        };
+        schema.validate_streaming_relations()?;
+        Ok(schema)
     }
 
     pub fn declarations(&self) -> &[CoreDeclaration] {
@@ -165,6 +249,19 @@ impl CoreSchema {
         self.declarations
             .iter()
             .find(|declaration| declaration.role() == role)
+    }
+
+    fn declaration(&self, identifier: Identifier) -> Option<&CoreDeclaration> {
+        self.declarations
+            .iter()
+            .find(|declaration| declaration.identifier() == identifier)
+    }
+
+    fn validate_streaming_relations(&self) -> Result<(), CoreSchemaError> {
+        for relation in &self.streaming_relations {
+            relation.validate_in(self)?;
+        }
+        Ok(())
     }
 
     /// This schema's content identity, blake3 over its stringless rkyv bytes with
@@ -256,30 +353,6 @@ impl CoreDeclaration {
     pub fn identifier(&self) -> Identifier {
         self.value.identifier()
     }
-
-    /// This declaration re-stamped into a canonical name space — its visibility and
-    /// [`DeclarationRole`] preserved, its value's own name replaced with the
-    /// already-canonically-interned `own`, and every interior name re-stamped through
-    /// `source` into `canonical` ([`CoreType::restamp`]). The authority-provided
-    /// universe path ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
-    /// uses it so an ingested declaration keeps its role and visibility while its
-    /// stored identifiers become a deterministic function of the canonical order.
-    pub fn restamp<Source, Canonical>(
-        &self,
-        own: Identifier,
-        source: &Source,
-        canonical: &mut Canonical,
-    ) -> Result<Self, NameTableError>
-    where
-        Source: NameResolver + ?Sized,
-        Canonical: NameInterner + ?Sized,
-    {
-        Ok(Self {
-            visibility: self.visibility,
-            role: self.role,
-            value: self.value.restamp(own, source, canonical)?,
-        })
-    }
 }
 
 /// Whether a declaration is exported. A closed typed record, never a boolean flag.
@@ -331,51 +404,6 @@ impl CoreType {
             Self::Newtype(_) | Self::Struct(_) => 1,
             Self::Enumeration(enumeration) => enumeration.variants().len(),
         }
-    }
-
-    /// This type re-stamped into a canonical name space: its own name identifier
-    /// replaced with the already-canonically-interned `own`, and EVERY interior name
-    /// — field names, variant names, and the target of each `Plain` cross-reference —
-    /// resolved through the `source` name space and re-interned into `canonical`.
-    /// The authority-provided universe path
-    /// ([`CoreUniverse::from_assignment`](crate::universe::CoreUniverse::from_assignment))
-    /// uses it so the built declaration's every stored identifier is a deterministic
-    /// function of the canonical interning order (the authority's assignment plus a
-    /// fixed positional walk), never of the order the source parsed. Without the
-    /// interior re-stamping, schemas whose declarations reference each other or carry
-    /// explicit field names still hashed differently across parse orders.
-    pub fn restamp<Source, Canonical>(
-        &self,
-        own: Identifier,
-        source: &Source,
-        canonical: &mut Canonical,
-    ) -> Result<Self, NameTableError>
-    where
-        Source: NameResolver + ?Sized,
-        Canonical: NameInterner + ?Sized,
-    {
-        Ok(match self {
-            Self::Newtype(newtype) => Self::Newtype(CoreNewtype::new(
-                own,
-                newtype.reference().restamp(source, canonical)?,
-            )),
-            Self::Struct(structure) => {
-                let fields = structure
-                    .fields()
-                    .iter()
-                    .map(|field| field.restamp(source, canonical))
-                    .collect::<Result<_, _>>()?;
-                Self::Struct(CoreStruct::new(own, fields))
-            }
-            Self::Enumeration(enumeration) => {
-                let variants = enumeration
-                    .variants()
-                    .iter()
-                    .map(|variant| variant.restamp(source, canonical))
-                    .collect::<Result<_, _>>()?;
-                Self::Enumeration(CoreEnum::new(own, variants))
-            }
-        })
     }
 }
 
@@ -449,27 +477,6 @@ impl CoreField {
         &self.reference
     }
 
-    /// This field re-stamped into a canonical name space: its own name resolved
-    /// through `source` and re-interned into `canonical`, and its reference
-    /// re-stamped the same way. Part of the authority-provided canonicalisation
-    /// ([`CoreType::restamp`]).
-    pub fn restamp<Source, Canonical>(
-        &self,
-        source: &Source,
-        canonical: &mut Canonical,
-    ) -> Result<Self, NameTableError>
-    where
-        Source: NameResolver + ?Sized,
-        Canonical: NameInterner + ?Sized,
-    {
-        let name = source.resolve(self.identifier)?.clone();
-        let identifier = canonical.intern(name)?;
-        Ok(Self::new(
-            identifier,
-            self.reference.restamp(source, canonical)?,
-        ))
-    }
-
     /// Whether this field's stored name is exactly the one its reference derives.
     /// Field names are illegal in every Protos surface, so the textual codec never
     /// consults this — a decoded field always carries its type-derived name. It
@@ -530,27 +537,5 @@ impl CoreVariant {
 
     pub fn payload(&self) -> Option<&CoreReference> {
         self.payload.as_ref()
-    }
-
-    /// This variant re-stamped into a canonical name space: its own name resolved
-    /// through `source` and re-interned into `canonical`, and its optional payload
-    /// reference re-stamped the same way. Part of the authority-provided
-    /// canonicalisation ([`CoreType::restamp`]).
-    pub fn restamp<Source, Canonical>(
-        &self,
-        source: &Source,
-        canonical: &mut Canonical,
-    ) -> Result<Self, NameTableError>
-    where
-        Source: NameResolver + ?Sized,
-        Canonical: NameInterner + ?Sized,
-    {
-        let name = source.resolve(self.identifier)?.clone();
-        let identifier = canonical.intern(name)?;
-        let payload = match &self.payload {
-            Some(reference) => Some(reference.restamp(source, canonical)?),
-            None => None,
-        };
-        Ok(Self::new(identifier, payload))
     }
 }
