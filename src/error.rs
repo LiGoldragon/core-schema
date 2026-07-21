@@ -105,8 +105,23 @@ pub enum CoreSchemaLoadError {
 /// not equal the constructor's Core field signature.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum UniverseError {
-    #[error("no universe type is allocated for the name identifier {0}")]
-    UnresolvedName(Identifier),
+    #[error(
+        "reference {reference:?} uses scalar slot {slot:?}, but no member registered that slot"
+    )]
+    MissingScalarSlot {
+        slot: crate::universe::ScalarSlot,
+        reference: crate::reference::CoreReference,
+    },
+    #[error("reference {reference:?} names {identifier}, which is absent from the NameTable")]
+    ReferenceNameAbsent {
+        identifier: Identifier,
+        reference: crate::reference::CoreReference,
+    },
+    #[error("reference {reference:?} names {identifier}, which has no registered universe member")]
+    ReferenceTargetUnregistered {
+        identifier: Identifier,
+        reference: crate::reference::CoreReference,
+    },
     #[error("no universe type is registered under id {0:?}")]
     UnknownType(ScopedCoreTypeId),
     #[error("two universe members use type id {0:?}")]

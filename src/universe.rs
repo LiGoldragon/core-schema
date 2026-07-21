@@ -85,10 +85,10 @@ pub struct CoreUniverse {
     members: Vec<UniverseType>,
     by_id: BTreeMap<ScopedCoreTypeId, usize>,
     by_name: HashMap<Identifier, ScopedCoreTypeId>,
-    integer: ScopedCoreTypeId,
-    text: ScopedCoreTypeId,
-    boolean: ScopedCoreTypeId,
-    bytes: ScopedCoreTypeId,
+    integer: Option<ScopedCoreTypeId>,
+    text: Option<ScopedCoreTypeId>,
+    boolean: Option<ScopedCoreTypeId>,
+    bytes: Option<ScopedCoreTypeId>,
 }
 
 impl CoreUniverse {
@@ -193,10 +193,22 @@ impl CoreUniverse {
         expected_universe: CoreUniverseId,
     ) -> Result<(), UniverseError> {
         let validate_scalar = |slot| {
-            scalar_registrations
+            let id = scalar_registrations
                 .iter()
-                .filter(|(registered, _)| *registered == slot)
-                .try_for_each(|(_, id)| Self::validate_scoped_type_id(expected_universe, *id))
+                .find_map(|(registered, id)| (*registered == slot).then_some(*id))
+                .ok_or_else(|| UniverseError::MissingScalarSlot {
+                    slot,
+                    reference: reference.clone(),
+                })?;
+            Self::validate_scoped_type_id(expected_universe, id)?;
+            if members.iter().any(|member| member.id == id) {
+                Ok(())
+            } else {
+                Err(UniverseError::MissingScalarSlot {
+                    slot,
+                    reference: reference.clone(),
+                })
+            }
         };
         match reference {
             CoreReference::String => validate_scalar(ScalarSlot::Text),
@@ -205,13 +217,20 @@ impl CoreUniverse {
             CoreReference::Bytes => validate_scalar(ScalarSlot::Bytes),
             CoreReference::Plain(identifier) => {
                 Self::validate_schema_identifier(*identifier)?;
-                names.resolve(*identifier)?;
-                members
+                names
+                    .resolve(*identifier)
+                    .map_err(|_| UniverseError::ReferenceNameAbsent {
+                        identifier: *identifier,
+                        reference: reference.clone(),
+                    })?;
+                let member = members
                     .iter()
-                    .filter(|member| member.name == *identifier)
-                    .try_for_each(|member| {
-                        Self::validate_scoped_type_id(expected_universe, member.id)
-                    })
+                    .find(|member| member.name == *identifier)
+                    .ok_or_else(|| UniverseError::ReferenceTargetUnregistered {
+                        identifier: *identifier,
+                        reference: reference.clone(),
+                    })?;
+                Self::validate_scoped_type_id(expected_universe, member.id)
             }
             CoreReference::SingleTypeApplication { argument, .. } => {
                 Self::validate_reference_identifiers(
@@ -310,24 +329,40 @@ impl CoreUniverse {
         self.by_name.get(&name).copied()
     }
 
-    /// Resolve a by-kind reference to the universe type it names. Scalar leaves map
-    /// to their primitive types; a `Plain` reference resolves its name through the
-    /// registry; a generic application has no allocated type in this PoC universe
-    /// and is a loud, typed error rather than a silent guess.
+    /// Resolve a by-kind reference to the universe type it names. A scalar leaf
+    /// resolves only through its explicitly registered scalar slot; a `Plain`
+    /// reference must still resolve in the NameTable and the member registry. A
+    /// generic application has no allocated type in this PoC universe and is a loud,
+    /// typed error rather than a silent guess.
     pub fn resolve_reference(
         &self,
         reference: &CoreReference,
     ) -> Result<ScopedCoreTypeId, UniverseError> {
+        let scalar = |slot, id: Option<ScopedCoreTypeId>| {
+            id.ok_or_else(|| UniverseError::MissingScalarSlot {
+                slot,
+                reference: reference.clone(),
+            })
+        };
         match reference {
-            CoreReference::Integer => Ok(self.integer),
-            CoreReference::String => Ok(self.text),
-            CoreReference::Boolean => Ok(self.boolean),
-            CoreReference::Bytes => Ok(self.bytes),
-            CoreReference::Plain(identifier) => self
-                .by_name
-                .get(identifier)
-                .copied()
-                .ok_or(UniverseError::UnresolvedName(*identifier)),
+            CoreReference::Integer => scalar(ScalarSlot::Integer, self.integer),
+            CoreReference::String => scalar(ScalarSlot::Text, self.text),
+            CoreReference::Boolean => scalar(ScalarSlot::Boolean, self.boolean),
+            CoreReference::Bytes => scalar(ScalarSlot::Bytes, self.bytes),
+            CoreReference::Plain(identifier) => {
+                self.names.resolve(*identifier).map_err(|_| {
+                    UniverseError::ReferenceNameAbsent {
+                        identifier: *identifier,
+                        reference: reference.clone(),
+                    }
+                })?;
+                self.by_name.get(identifier).copied().ok_or_else(|| {
+                    UniverseError::ReferenceTargetUnregistered {
+                        identifier: *identifier,
+                        reference: reference.clone(),
+                    }
+                })
+            }
             CoreReference::SingleTypeApplication { .. } => Err(
                 UniverseError::UnsupportedApplication("single-type generic application"),
             ),
@@ -616,6 +651,12 @@ impl CoreUniverseBuilder {
             self.names.resolve(member.name)?;
             CoreUniverse::validate_scoped_type_id(universe, member.id)?;
             if let MemberKind::Declaration(declaration) = &member.kind {
+                if declaration.identifier() != member.name {
+                    return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
+                        assigned: member.name,
+                        declared: declaration.identifier(),
+                    });
+                }
                 CoreUniverse::validate_declaration_identifiers(
                     declaration,
                     &self.names,
@@ -623,12 +664,6 @@ impl CoreUniverseBuilder {
                     &self.scalar_registrations,
                     universe,
                 )?;
-                if declaration.identifier() != member.name {
-                    return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
-                        assigned: member.name,
-                        declared: declaration.identifier(),
-                    });
-                }
             }
             if !member_ids.insert(member.id) {
                 return Err(UniverseError::DuplicateMemberIdentity(member.id));
@@ -657,12 +692,7 @@ impl CoreUniverseBuilder {
             .map(|member| (member.name, member.id))
             .collect();
         let scalars: HashMap<_, _> = self.scalar_registrations.into_iter().collect();
-        let scalar = |slot: ScalarSlot| {
-            scalars
-                .get(&slot)
-                .copied()
-                .unwrap_or_else(|| ScopedCoreTypeId::new(universe, u32::MAX))
-        };
+        let scalar = |slot: ScalarSlot| scalars.get(&slot).copied();
         Ok(CoreUniverse {
             universe,
             integer: scalar(ScalarSlot::Integer),
