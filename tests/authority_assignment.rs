@@ -2,11 +2,12 @@
 //! encoded identifier. The bridge never resolves a name merely to re-intern it into
 //! another namespace.
 
-use core_schema::declaration::{EncodedField, EncodedStruct, EncodedType};
+use content_identity::PortableArchive;
+use core_schema::declaration::{EncodedEnum, EncodedField, EncodedStruct, EncodedType};
 use core_schema::{
-    AssignedKind, AssignedMember, EncodedDeclaration, EncodedNewtype, EncodedReference,
-    EncodedUniverse, EncodedUniverseBuilder, ScalarSlot, SingleTypeReferenceProjection,
-    UniverseError,
+    AssignedKind, AssignedMember, BuiltinReference, EncodedDeclaration, EncodedNewtype,
+    EncodedReference, EncodedUniverse, EncodedUniverseBuilder, ScalarSlot,
+    SingleTypeReferenceProjection, StructuralRedefinition, UniverseError,
 };
 use name_table::{Identifier, IdentifierNamespace, Name, NameTable};
 use structural_codec::ids::{EncodedUniverseId, ScopedEncodedTypeId};
@@ -474,4 +475,47 @@ fn direct_builder_seal_resolves_registered_scalar_and_plain_targets() {
             .unwrap(),
         integer_id
     );
+}
+
+/// A builtin is a prior definition at the universe seal, independent of whether a
+/// scalar member is present. The redefinition value archives as typed data rather
+/// than a collapsed diagnostic string.
+#[test]
+fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
+    assert_eq!(
+        BuiltinReference::ALL.len(),
+        7,
+        "the builtin lexicon is exhaustive"
+    );
+    let universe = EncodedUniverseId::new(22);
+
+    for builtin in BuiltinReference::ALL {
+        let mut builder = EncodedUniverseBuilder::new();
+        let identifier = builder.intern(builtin.spelling()).expect("intern builtin");
+        let redefinition = StructuralRedefinition::new(identifier, builtin);
+        let bytes = redefinition
+            .to_archive_bytes()
+            .expect("archive typed redefinition");
+        assert_eq!(
+            StructuralRedefinition::from_archive_bytes(&bytes).expect("load typed redefinition"),
+            redefinition,
+        );
+
+        builder.declaration(
+            ScopedEncodedTypeId::new(universe, 0),
+            EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
+                identifier,
+                Vec::new(),
+            ))),
+        );
+        assert!(
+            matches!(
+                builder.build(universe),
+                Err(UniverseError::Redefinition(actual))
+                    if actual.identifier() == identifier && actual.builtin() == builtin
+            ),
+            "{} is a typed prior definition",
+            builtin.spelling(),
+        );
+    }
 }

@@ -12,6 +12,53 @@
 
 use name_table::{Identifier, Name, NameInterner, NameResolver, NameTableError};
 
+/// A builtin reference spelling reserved by the schema textual interface. A declared
+/// type cannot reuse one of these spellings: each already denotes a built-in
+/// reference form.
+#[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+pub enum BuiltinReference {
+    Integer,
+    String,
+    Boolean,
+    Bytes,
+    Vector,
+    Optional,
+    ScopeOf,
+}
+
+impl BuiltinReference {
+    /// Every builtin spelling accepted by the current textual interface.
+    pub const ALL: [Self; 7] = [
+        Self::Integer,
+        Self::String,
+        Self::Boolean,
+        Self::Bytes,
+        Self::Vector,
+        Self::Optional,
+        Self::ScopeOf,
+    ];
+
+    /// The canonical textual spelling of this builtin.
+    pub fn spelling(self) -> &'static str {
+        match self {
+            Self::Integer => "Integer",
+            Self::String => "String",
+            Self::Boolean => "Boolean",
+            Self::Bytes => "Bytes",
+            Self::Vector => "Vector",
+            Self::Optional => "Optional",
+            Self::ScopeOf => "ScopeOf",
+        }
+    }
+
+    /// The builtin denoted by an exact canonical spelling.
+    pub fn from_spelling(spelling: &str) -> Option<Self> {
+        Self::ALL
+            .into_iter()
+            .find(|builtin| builtin.spelling() == spelling)
+    }
+}
+
 /// A single-type generic application's lowering strategy, by kind.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 pub enum SingleTypeReferenceProjection {

@@ -25,7 +25,7 @@ use structural_codec::table::AddressedStructuralTable;
 
 use crate::declaration::{EncodedDeclaration, EncodedSchema, EncodedType};
 use crate::error::UniverseError;
-use crate::reference::EncodedReference;
+use crate::reference::{BuiltinReference, EncodedReference};
 
 /// What a universe type is, for the purpose of deriving its Encoded constructor
 /// signatures. A closed typed record: the constructor arity and each signature
@@ -256,6 +256,21 @@ impl EncodedUniverse {
         }
     }
 
+    /// A declared type may not reuse a builtin spelling. The name table owns the
+    /// spelling, while the typed [`BuiltinReference`] records exactly which prior
+    /// definition the declaration attempted to replace.
+    pub fn validate_declaration_name(
+        identifier: Identifier,
+        names: &NameTable,
+    ) -> Result<(), UniverseError> {
+        Self::validate_schema_identifier(identifier)?;
+        let name = names.resolve(identifier)?;
+        if let Some(builtin) = BuiltinReference::from_spelling(name.as_str()) {
+            return Err(crate::error::StructuralRedefinition::new(identifier, builtin).into());
+        }
+        Ok(())
+    }
+
     fn validate_declaration_identifiers(
         declaration: &EncodedDeclaration,
         names: &NameTable,
@@ -268,7 +283,7 @@ impl EncodedUniverse {
             names.resolve(identifier)?;
             Ok::<_, UniverseError>(())
         };
-        validate_identifier(declaration.identifier())?;
+        Self::validate_declaration_name(declaration.identifier(), names)?;
         match declaration.value() {
             EncodedType::Newtype(newtype) => Self::validate_reference_identifiers(
                 newtype.reference(),

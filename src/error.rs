@@ -8,6 +8,38 @@ use raw_discovery::RecognizeError;
 use structural_codec::ids::{EncodedUniverseId, ScopedEncodedTypeId};
 use structural_codec::{DecodeError, EncodeError, TableError};
 
+use crate::reference::BuiltinReference;
+
+/// A declaration attempts to reuse a name whose definition already belongs to the
+/// textual interface. This failure is typed archive data, so a boundary can preserve
+/// the declared identifier and the exact prior builtin without reducing either to
+/// text.
+#[derive(
+    rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Clone, Debug, Eq, PartialEq, thiserror::Error,
+)]
+#[error("declaration {identifier} redefines builtin {builtin:?}")]
+pub struct StructuralRedefinition {
+    identifier: Identifier,
+    builtin: BuiltinReference,
+}
+
+impl StructuralRedefinition {
+    pub fn new(identifier: Identifier, builtin: BuiltinReference) -> Self {
+        Self {
+            identifier,
+            builtin,
+        }
+    }
+
+    pub fn identifier(&self) -> Identifier {
+        self.identifier
+    }
+
+    pub fn builtin(&self) -> BuiltinReference {
+        self.builtin
+    }
+}
+
 /// Computing a stringless-Encoded value's content identity failed.
 #[derive(Debug, Clone, thiserror::Error)]
 pub enum EncodedIdentityError {
@@ -134,6 +166,8 @@ pub enum UniverseError {
     },
     #[error("two universe members use Schema identifier {0}")]
     DuplicateMemberName(Identifier),
+    #[error(transparent)]
+    Redefinition(#[from] StructuralRedefinition),
     #[error("two scalar primitive registrations fill the {0:?} slot")]
     DuplicateScalarSlot(crate::universe::ScalarSlot),
     #[error(

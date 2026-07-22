@@ -26,7 +26,7 @@ an Encoded value's content hash.
 ## Dependency pin
 
 All Protos machinery crates resolve at immutable pushed revision
-`a95f89aa31fdb288793c1ff6b8845605566964d6`. Cargo.lock records the same revision;
+`5eeb79f17559b7c395690304fa5b4a91cb36d45c`. Cargo.lock records the same revision;
 the Nix build consumes that lockfile.
 
 ## Build and test

@@ -88,7 +88,7 @@ checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 [[package]]
 name = "content-identity"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "blake3",
  "rkyv",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "core-schema"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "content-identity",
  "name-table",
@@ -182,9 +182,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.188"
+version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22053b6a34f84abc97f9129e61334f40174659a1b9bd18c970b83db6a9a6348b"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "munge"
@@ -209,7 +209,7 @@ dependencies = [
 [[package]]
 name = "name-table"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "content-identity",
  "rkyv",
@@ -278,7 +278,7 @@ dependencies = [
 [[package]]
 name = "raw-discovery"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "content-identity",
  "rkyv",
@@ -350,8 +350,8 @@ checksum = "0c790de23124f9ab44544d7ac05d60440adc586479ce501c1d6d7da3cd8c9cf5"
 
 [[package]]
 name = "structural-codec"
-version = "0.2.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+version = "0.3.0"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "content-identity",
  "name-table",
@@ -363,7 +363,7 @@ dependencies = [
 [[package]]
 name = "structural-codec-derive"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -373,7 +373,7 @@ dependencies = [
 [[package]]
 name = "structural-codec-derive-fixtures"
 version = "0.1.0"
-source = "git+https://github.com/LiGoldragon/protos.git?rev=a95f89aa31fdb288793c1ff6b8845605566964d6#a95f89aa31fdb288793c1ff6b8845605566964d6"
+source = "git+https://github.com/LiGoldragon/protos.git?rev=5eeb79f17559b7c395690304fa5b4a91cb36d45c#5eeb79f17559b7c395690304fa5b4a91cb36d45c"
 dependencies = [
  "name-table",
  "raw-discovery",
@@ -394,9 +394,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a207d6d6a2b7fc470b80443726053f18a2481b7e1eee970597051596567987a3"
+checksum = "53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -420,7 +420,7 @@ checksum = "43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]

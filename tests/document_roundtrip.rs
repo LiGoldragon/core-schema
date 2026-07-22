@@ -7,7 +7,9 @@
 
 use core_schema::declaration::EncodedType;
 use core_schema::reference::{EncodedReference, SingleTypeReferenceProjection};
-use core_schema::{EncodedDeclaration, TextualSchema};
+use core_schema::{
+    BuiltinReference, EncodedDeclaration, TextualError, TextualSchema, UniverseError,
+};
 use name_table::{Identifier, IdentifierNamespace, NameTable};
 use raw_discovery::Recognizer;
 use structural_codec::CanonicalText;
@@ -56,6 +58,40 @@ fn declaration<'schema>(
         .map(EncodedDeclaration::value)
         .find(|value| text(names, value.identifier()) == wanted)
         .unwrap_or_else(|| panic!("declaration {wanted} is present"))
+}
+
+/// Every builtin spelling is already a definition, not a user-declared type name.
+/// The table-driven set is the complete current textual builtin lexicon.
+#[test]
+fn builtin_type_declarations_are_typed_redefinitions() {
+    assert_eq!(
+        BuiltinReference::ALL.len(),
+        7,
+        "the builtin lexicon is exhaustive"
+    );
+
+    for builtin in BuiltinReference::ALL {
+        let document = format!(
+            "{{}}\n[]\n[]\n{{\n  {}.[]\n}}\n{{}}\n{{}}",
+            builtin.spelling()
+        );
+        let textual = TextualSchema::schema_document().expect("seal document grammar");
+        let mut names = NameTable::new(IdentifierNamespace::Schema);
+        let error = textual
+            .decode_document(&document, &mut names)
+            .expect_err("a builtin spelling cannot declare a user type");
+
+        assert!(
+            matches!(
+                error,
+                TextualError::Universe(UniverseError::Redefinition(redefinition))
+                    if redefinition.builtin() == builtin
+                        && text(&names, redefinition.identifier()) == builtin.spelling()
+            ),
+            "{} rejects as a typed builtin redefinition",
+            builtin.spelling(),
+        );
+    }
 }
 
 /// The whole document decodes to the full declaration set, construct by construct:

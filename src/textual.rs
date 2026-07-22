@@ -354,7 +354,7 @@ impl TextualSchema {
     /// the winning grammar constructor index — never a head string. A `Delegate`
     /// wrapper is transparent; a scalar constructor yields its leaf; a single-type
     /// projection yields the application over its recursively reified argument; the
-    /// `Plain` fallback carries the name identifier.
+    /// `Declared` form carries the declared-name identifier.
     fn reify_reference(value: &StructuralValue) -> Result<EncodedReference, TextualError> {
         match value {
             StructuralValue::Delegated(inner) => Self::reify_reference(inner),
@@ -409,7 +409,7 @@ impl TextualSchema {
                 Self::reference_scalar_mirror(ReferenceConstructor::Bytes, names)
             }
             EncodedReference::Plain(identifier) => Ok(StructuralValue::chosen(
-                ReferenceConstructor::Plain.index(),
+                ReferenceConstructor::Declared.index(),
                 StructuralValue::Atom(*identifier),
             )),
             EncodedReference::SingleTypeApplication {
@@ -488,6 +488,9 @@ impl TextualSchema {
         declarations.push(input);
         declarations.push(output);
         declarations.extend(types);
+        for declaration in &declarations {
+            EncodedUniverse::validate_declaration_name(declaration.identifier(), names)?;
+        }
         Ok(EncodedSchema::new(declarations))
     }
 

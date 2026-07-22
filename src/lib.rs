@@ -51,12 +51,12 @@ pub use document::{
 };
 pub use error::{
     EncodedIdentityError, EncodedSchemaError, EncodedSchemaLoadError, StreamingReferenceForm,
-    StreamingRelationReference, TextualError, UniverseError,
+    StreamingRelationReference, StructuralRedefinition, TextualError, UniverseError,
 };
 pub use fixture::FixtureFamily;
 pub use reference::{
-    EncodedReference, MultiTypeReferenceProjection, SingleTypeReferenceProjection,
-    ValueReferenceProjection,
+    BuiltinReference, EncodedReference, MultiTypeReferenceProjection,
+    SingleTypeReferenceProjection, ValueReferenceProjection,
 };
 pub use textual::{SchemaLanguage, TextualSchema};
 pub use universe::{
