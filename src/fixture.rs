@@ -58,7 +58,7 @@ impl FixtureFamily {
     /// Build the family: intern the names, construct the real declarations, and
     /// register every type in the universe.
     pub fn build() -> Self {
-        let mut builder = EncodedUniverseBuilder::new().with_standard_builtins();
+        let mut builder = EncodedUniverseBuilder::new();
 
         // Scalar leaf primitives. `Text` is the string leaf the rejoin chain ends in.
         builder

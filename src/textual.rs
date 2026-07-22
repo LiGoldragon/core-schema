@@ -63,9 +63,7 @@ impl TextualSchema {
     pub fn schema_document() -> Result<Self, TextualError> {
         let grammar = SchemaDocumentGrammar::build()?;
         Ok(Self {
-            universe: EncodedUniverseBuilder::new()
-                .with_standard_builtins()
-                .build(ENCODED_UNIVERSE)?,
+            universe: EncodedUniverseBuilder::new().build(ENCODED_UNIVERSE)?,
             table: grammar.table().clone(),
         })
     }

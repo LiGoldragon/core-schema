@@ -554,7 +554,6 @@ pub struct EncodedUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
     scalar_registrations: Vec<(ScalarSlot, ScopedEncodedTypeId)>,
-    builtins: Vec<BuiltinReference>,
 }
 
 /// Which scalar leaf a primitive registration fills. Naming the slot as data keeps
@@ -573,32 +572,27 @@ impl Default for EncodedUniverseBuilder {
             names: NameTable::new(IdentifierNamespace::Schema),
             members: Vec::new(),
             scalar_registrations: Vec::new(),
-            builtins: Vec::new(),
         }
     }
 }
 
 impl EncodedUniverseBuilder {
+    /// Start a Schema universe whose standard definitions are mandatory prior
+    /// members. Their identities are resolved through the NameTable at sealing; they
+    /// are never lexical exclusions or optional parser configuration.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Build against an already completed Schema-home table, preserving its complete
-    /// composed slice set rather than copying or flattening it.
+    /// composed slice set rather than copying or flattening it. Standard definitions
+    /// remain mandatory for this lower-level construction route too.
     pub fn from_name_table(names: NameTable) -> Self {
         Self {
             names,
             members: Vec::new(),
             scalar_registrations: Vec::new(),
-            builtins: Vec::new(),
         }
-    }
-
-    /// Install every prior standard-universe definition. Their names are semantic
-    /// universe data, not syntax reservations.
-    pub fn with_standard_builtins(mut self) -> Self {
-        self.builtins.extend(BuiltinReference::ALL);
-        self
     }
 
     pub fn names(&self) -> &NameTable {
@@ -700,10 +694,8 @@ impl EncodedUniverseBuilder {
             });
         }
 
-        let builtins: HashMap<String, BuiltinReference> = self
-            .builtins
-            .iter()
-            .copied()
+        let builtins: HashMap<String, BuiltinReference> = BuiltinReference::ALL
+            .into_iter()
             .map(|builtin| (builtin.spelling().to_owned(), builtin))
             .collect();
 

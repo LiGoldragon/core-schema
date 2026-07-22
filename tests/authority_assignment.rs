@@ -477,11 +477,11 @@ fn direct_builder_seal_resolves_registered_scalar_and_plain_targets() {
     );
 }
 
-/// A builtin is a prior definition at the universe seal, independent of whether a
-/// scalar member is present. The redefinition value archives as typed data rather
-/// than a collapsed diagnostic string.
+/// A builtin is a mandatory prior definition at the direct-builder seal,
+/// independent of whether a scalar member is present. The actual rejection is
+/// archiveable typed data rather than a collapsed diagnostic string.
 #[test]
-fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
+fn direct_builder_rejects_every_builtin_as_an_archiveable_redefinition() {
     assert_eq!(
         BuiltinReference::ALL.len(),
         7,
@@ -490,9 +490,27 @@ fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
     let universe = EncodedUniverseId::new(22);
 
     for builtin in BuiltinReference::ALL {
-        let mut builder = EncodedUniverseBuilder::new().with_standard_builtins();
+        let mut builder = EncodedUniverseBuilder::new();
         let identifier = builder.intern(builtin.spelling()).expect("intern builtin");
-        let redefinition = StructuralRedefinition::new(identifier, builtin);
+        builder.declaration(
+            ScopedEncodedTypeId::new(universe, 0),
+            EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
+                identifier,
+                Vec::new(),
+            ))),
+        );
+
+        let UniverseError::Redefinition(redefinition) = builder
+            .build(universe)
+            .expect_err("a builtin declaration cannot seal through the direct builder")
+        else {
+            panic!(
+                "{} must reject with StructuralRedefinition",
+                builtin.spelling()
+            );
+        };
+        assert_eq!(redefinition.identifier(), identifier);
+        assert_eq!(redefinition.builtin(), builtin);
         let bytes = redefinition
             .to_archive_bytes()
             .expect("archive typed redefinition");
@@ -501,6 +519,9 @@ fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
             redefinition,
         );
 
+        let (names, identifiers) = schema_table(&[builtin.spelling()]);
+        let identifier = identifiers[0];
+        let mut builder = EncodedUniverseBuilder::from_name_table(names);
         builder.declaration(
             ScopedEncodedTypeId::new(universe, 0),
             EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
@@ -514,8 +535,49 @@ fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
                 Err(UniverseError::Redefinition(actual))
                     if actual.identifier() == identifier && actual.builtin() == builtin
             ),
-            "{} is a typed prior definition",
+            "{} is also rejected by the supplied-table builder route",
             builtin.spelling(),
+        );
+    }
+}
+
+/// Authority-provided construction shares the exact same mandatory builtin-prior
+/// seal as direct construction. Sorting or externally assigning locals cannot bypass
+/// the standard-universe definitions.
+#[test]
+fn from_assignment_rejects_every_builtin_as_an_archiveable_redefinition() {
+    let universe = EncodedUniverseId::new(23);
+
+    for builtin in BuiltinReference::ALL {
+        let (names, identifiers) = schema_table(&[builtin.spelling()]);
+        let identifier = identifiers[0];
+        let declaration = EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
+            identifier,
+            Vec::new(),
+        )));
+        let UniverseError::Redefinition(redefinition) = EncodedUniverse::from_assignment(
+            universe,
+            vec![AssignedMember::new(
+                0,
+                identifier,
+                AssignedKind::Declaration(declaration),
+            )],
+            names,
+        )
+        .expect_err("a builtin declaration cannot seal through an authority assignment") else {
+            panic!(
+                "{} must reject with StructuralRedefinition",
+                builtin.spelling()
+            );
+        };
+        assert_eq!(redefinition.identifier(), identifier);
+        assert_eq!(redefinition.builtin(), builtin);
+        let bytes = redefinition
+            .to_archive_bytes()
+            .expect("archive typed redefinition");
+        assert_eq!(
+            StructuralRedefinition::from_archive_bytes(&bytes).expect("load typed redefinition"),
+            redefinition,
         );
     }
 }

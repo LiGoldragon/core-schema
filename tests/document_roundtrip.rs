@@ -5,6 +5,7 @@
 //! equality across front-ends) is a SEPARATE queued slice and is deliberately NOT
 //! asserted here; this proves the native surface represents the accepted grammar.
 
+use content_identity::PortableArchive;
 use core_schema::declaration::EncodedType;
 use core_schema::reference::{EncodedReference, SingleTypeReferenceProjection};
 use core_schema::{
@@ -81,15 +82,21 @@ fn builtin_type_declarations_are_typed_redefinitions() {
             .decode_document(&document, &mut names)
             .expect_err("a builtin spelling cannot declare a user type");
 
-        assert!(
-            matches!(
-                error,
-                TextualError::Universe(UniverseError::Redefinition(redefinition))
-                    if redefinition.builtin() == builtin
-                        && text(&names, redefinition.identifier()) == builtin.spelling()
-            ),
-            "{} rejects as a typed builtin redefinition",
-            builtin.spelling(),
+        let TextualError::Universe(UniverseError::Redefinition(redefinition)) = error else {
+            panic!(
+                "{} must reject with StructuralRedefinition",
+                builtin.spelling()
+            );
+        };
+        assert_eq!(redefinition.builtin(), builtin);
+        assert_eq!(text(&names, redefinition.identifier()), builtin.spelling());
+        let bytes = redefinition
+            .to_archive_bytes()
+            .expect("archive typed redefinition");
+        assert_eq!(
+            core_schema::StructuralRedefinition::from_archive_bytes(&bytes)
+                .expect("load typed redefinition"),
+            redefinition,
         );
     }
 }
