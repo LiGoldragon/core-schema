@@ -13,10 +13,10 @@ name = "core_schema"
 path = "src/lib.rs"
 
 [dependencies]
-content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "5eeb79f17559b7c395690304fa5b4a91cb36d45c" }
-name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "5eeb79f17559b7c395690304fa5b4a91cb36d45c" }
-raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "5eeb79f17559b7c395690304fa5b4a91cb36d45c" }
-structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "5eeb79f17559b7c395690304fa5b4a91cb36d45c" }
+content-identity = { git = "https://github.com/LiGoldragon/protos.git", rev = "ccca839f7e1d362ab2d5e36545a729b7a1d0d7a6" }
+name-table       = { git = "https://github.com/LiGoldragon/protos.git", rev = "ccca839f7e1d362ab2d5e36545a729b7a1d0d7a6" }
+raw-discovery    = { git = "https://github.com/LiGoldragon/protos.git", rev = "ccca839f7e1d362ab2d5e36545a729b7a1d0d7a6" }
+structural-codec = { git = "https://github.com/LiGoldragon/protos.git", rev = "ccca839f7e1d362ab2d5e36545a729b7a1d0d7a6" }
 rkyv             = { version = "0.8", default-features = false, features = ["std", "bytecheck", "little_endian", "pointer_width_32", "unaligned"] }
 thiserror        = "2"
 
@@ -27,7 +27,7 @@ thiserror        = "2"
 # (`tests/derived_conformance.rs`): the derive lives upstream in protos, but the
 # proof that its emitted entries equal these authored entries belongs here, where a
 # single pin governs both.
-structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "5eeb79f17559b7c395690304fa5b4a91cb36d45c" }
+structural-codec-derive-fixtures = { git = "https://github.com/LiGoldragon/protos.git", rev = "ccca839f7e1d362ab2d5e36545a729b7a1d0d7a6" }
 
 [lints.rust]
 unsafe_code = "forbid"

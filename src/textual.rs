@@ -33,7 +33,7 @@ use crate::document::{
 };
 use crate::error::TextualError;
 use crate::fixture::FixtureFamily;
-use crate::reference::EncodedReference;
+use crate::reference::{BuiltinReference, EncodedReference};
 use crate::universe::{ENCODED_UNIVERSE, EncodedUniverse, EncodedUniverseBuilder};
 
 /// A Textual view over one Encoded universe: the authored structural table plus the
@@ -43,9 +43,6 @@ use crate::universe::{ENCODED_UNIVERSE, EncodedUniverse, EncodedUniverseBuilder}
 pub struct TextualSchema {
     universe: EncodedUniverse,
     table: AddressedStructuralTable,
-    /// The lexicon for `Literal` keyword decode. `None` for tables that carry no
-    /// literals (the single-declaration fixture); `Some` for the document grammar.
-    lexicon: Option<NameTable>,
 }
 
 impl TextualSchema {
@@ -56,7 +53,6 @@ impl TextualSchema {
         Ok(Self {
             universe: family.universe().clone(),
             table,
-            lexicon: None,
         })
     }
 
@@ -67,19 +63,16 @@ impl TextualSchema {
     pub fn schema_document() -> Result<Self, TextualError> {
         let grammar = SchemaDocumentGrammar::build()?;
         Ok(Self {
-            universe: EncodedUniverseBuilder::new().build(ENCODED_UNIVERSE)?,
+            universe: EncodedUniverseBuilder::new()
+                .with_standard_builtins()
+                .build(ENCODED_UNIVERSE)?,
             table: grammar.table().clone(),
-            lexicon: Some(grammar.lexicon().clone()),
         })
     }
 
     /// Build a Textual view from an explicit universe and authored table.
     pub fn new(universe: EncodedUniverse, table: AddressedStructuralTable) -> Self {
-        Self {
-            universe,
-            table,
-            lexicon: None,
-        }
+        Self { universe, table }
     }
 
     pub fn universe(&self) -> &EncodedUniverse {
@@ -221,8 +214,7 @@ impl TextualSchema {
         type_id: name_table::Identifier,
         names: &NameTable,
     ) -> Result<EncodedReference, TextualError> {
-        let name = names.resolve(type_id)?;
-        Ok(EncodedReference::from_type_name(name, type_id))
+        Ok(self.universe.reference_from_name(type_id, names)?)
     }
 
     // ===== reflection: EncodedType -> StructuralValue =====
@@ -350,82 +342,93 @@ impl TextualSchema {
 
     // ===== type references (by kind and projection) =====
 
-    /// Reify a `TypeReference` mirror into a real [`EncodedReference`], dispatching on
-    /// the winning grammar constructor index — never a head string. A `Delegate`
-    /// wrapper is transparent; a scalar constructor yields its leaf; a single-type
-    /// projection yields the application over its recursively reified argument; the
-    /// `Declared` form carries the declared-name identifier.
-    fn reify_reference(value: &StructuralValue) -> Result<EncodedReference, TextualError> {
+    /// Reify a reference by its two structural forms. A bare name resolves only
+    /// against the universe; names not yet admitted stay pre-resolution `Plain`
+    /// references. An application head must be a universe projection definition.
+    fn reify_reference(
+        &self,
+        value: &StructuralValue,
+        names: &NameTable,
+    ) -> Result<EncodedReference, TextualError> {
         match value {
-            StructuralValue::Delegated(inner) => Self::reify_reference(inner),
+            StructuralValue::Delegated(inner) => self.reify_reference(inner, names),
             StructuralValue::Chosen {
                 constructor,
                 payload,
-            } => {
-                let constructor = ReferenceConstructor::from_index(*constructor)
-                    .ok_or(TextualError::ReifyShape("type reference constructor"))?;
-                if let Some(scalar) = constructor.scalar() {
-                    Ok(scalar)
-                } else if let Some(projection) = constructor.single_projection() {
-                    let StructuralValue::Application(_keyword, argument) = payload.as_ref() else {
-                        return Err(TextualError::ReifyShape(
-                            "single-type projection application",
-                        ));
+            } => match ReferenceConstructor::from_index(*constructor) {
+                Some(ReferenceConstructor::Name) => {
+                    let StructuralValue::Atom(identifier) = payload.as_ref() else {
+                        return Err(TextualError::ReifyShape("bare reference name"));
                     };
+                    Ok(self.universe.reference_from_name(*identifier, names)?)
+                }
+                Some(ReferenceConstructor::Application) => {
+                    let StructuralValue::Application(head, argument) = payload.as_ref() else {
+                        return Err(TextualError::ReifyShape("reference application"));
+                    };
+                    let StructuralValue::Atom(head) = head.as_ref() else {
+                        return Err(TextualError::ReifyShape("reference application head"));
+                    };
+                    let projection = self
+                        .universe
+                        .builtin_from_name(*head, names)?
+                        .and_then(BuiltinReference::single_projection)
+                        .ok_or(TextualError::ReifyShape("universe projection definition"))?;
                     Ok(EncodedReference::SingleTypeApplication {
                         projection,
-                        argument: Box::new(Self::reify_reference(argument)?),
+                        argument: Box::new(self.reify_reference(argument, names)?),
                     })
-                } else {
-                    let StructuralValue::Atom(identifier) = payload.as_ref() else {
-                        return Err(TextualError::ReifyShape("plain reference name"));
-                    };
-                    Ok(EncodedReference::Plain(*identifier))
                 }
-            }
+                None => Err(TextualError::ReifyShape("type reference constructor")),
+            },
             _ => Err(TextualError::ReifyShape("type reference")),
         }
     }
 
-    /// Reflect a [`EncodedReference`] into its `TypeReference` mirror. Scalar and
-    /// projection keywords are interned into `names` so the evaluator's `Literal`
-    /// encode resolves them; a `Plain` reference carries its stored identifier.
+    /// Reflect a reference into a bare universe definition or a name-applied
+    /// reference payload. The grammar owns no keyword forms.
     fn reflect_reference(
         &self,
         reference: &EncodedReference,
         names: &mut NameTable,
     ) -> Result<StructuralValue, TextualError> {
+        let bare = |builtin: BuiltinReference, names: &mut NameTable| {
+            Ok(StructuralValue::chosen(
+                ReferenceConstructor::Name.index(),
+                StructuralValue::Atom(names.intern(Name::new(builtin.spelling()))?),
+            ))
+        };
         match reference {
-            EncodedReference::Integer => {
-                Self::reference_scalar_mirror(ReferenceConstructor::Integer, names)
-            }
-            EncodedReference::String => {
-                Self::reference_scalar_mirror(ReferenceConstructor::String, names)
-            }
-            EncodedReference::Boolean => {
-                Self::reference_scalar_mirror(ReferenceConstructor::Boolean, names)
-            }
-            EncodedReference::Bytes => {
-                Self::reference_scalar_mirror(ReferenceConstructor::Bytes, names)
-            }
+            EncodedReference::Integer => bare(BuiltinReference::Integer, names),
+            EncodedReference::String => bare(BuiltinReference::String, names),
+            EncodedReference::Boolean => bare(BuiltinReference::Boolean, names),
+            EncodedReference::Bytes => bare(BuiltinReference::Bytes, names),
             EncodedReference::Plain(identifier) => Ok(StructuralValue::chosen(
-                ReferenceConstructor::Declared.index(),
+                ReferenceConstructor::Name.index(),
                 StructuralValue::Atom(*identifier),
             )),
             EncodedReference::SingleTypeApplication {
                 projection,
                 argument,
             } => {
-                let constructor = ReferenceConstructor::from_single_projection(*projection);
-                let keyword = constructor
-                    .keyword()
-                    .ok_or(TextualError::ReifyShape("projection keyword"))?;
-                let keyword_id = names.intern(Name::new(keyword))?;
+                let builtin = match projection {
+                    crate::reference::SingleTypeReferenceProjection::Vector => {
+                        BuiltinReference::Vector
+                    }
+                    crate::reference::SingleTypeReferenceProjection::Optional => {
+                        BuiltinReference::Optional
+                    }
+                    crate::reference::SingleTypeReferenceProjection::ScopeOf => {
+                        BuiltinReference::ScopeOf
+                    }
+                };
                 let inner = self.reflect_reference(argument, names)?;
                 Ok(StructuralValue::chosen(
-                    constructor.index(),
+                    ReferenceConstructor::Application.index(),
                     StructuralValue::Application(
-                        Box::new(StructuralValue::Atom(keyword_id)),
+                        Box::new(StructuralValue::Atom(
+                            names.intern(Name::new(builtin.spelling()))?,
+                        )),
                         Box::new(StructuralValue::Delegated(Box::new(inner))),
                     ),
                 ))
@@ -437,21 +440,6 @@ impl TextualSchema {
                 Err(TextualError::ReifyShape("value application encode"))
             }
         }
-    }
-
-    /// A scalar reference's mirror: the constructor tag over the keyword atom the
-    /// evaluator's `Literal` encode resolves.
-    fn reference_scalar_mirror(
-        constructor: ReferenceConstructor,
-        names: &mut NameTable,
-    ) -> Result<StructuralValue, TextualError> {
-        let keyword = constructor
-            .keyword()
-            .expect("a scalar constructor has a keyword");
-        Ok(StructuralValue::chosen(
-            constructor.index(),
-            StructuralValue::Atom(names.intern(Name::new(keyword))?),
-        ))
     }
 
     // ===== the six-slot document layout =====
@@ -489,7 +477,8 @@ impl TextualSchema {
         declarations.push(output);
         declarations.extend(types);
         for declaration in &declarations {
-            EncodedUniverse::validate_declaration_name(declaration.identifier(), names)?;
+            self.universe
+                .validate_declaration_name(declaration.identifier(), names)?;
         }
         Ok(EncodedSchema::new(declarations))
     }
@@ -520,13 +509,10 @@ impl TextualSchema {
         Ok(slots.join("\n"))
     }
 
-    /// The evaluator for the document grammar: with the keyword lexicon when the table
-    /// carries `Literal` forms, plain otherwise.
+    /// The evaluator for the document grammar. Builtins are universe definitions,
+    /// so the grammar needs no keyword lexicon.
     fn document_evaluator(&self) -> StructuralEvaluator<'_> {
-        match &self.lexicon {
-            Some(lexicon) => StructuralEvaluator::with_lexicon(&self.table, lexicon),
-            None => StructuralEvaluator::new(&self.table),
-        }
+        StructuralEvaluator::new(&self.table)
     }
 
     /// The canonical empty brace an unmodelled document slot renders to.
@@ -554,7 +540,7 @@ impl TextualSchema {
         names: &mut NameTable,
     ) -> Result<EncodedDeclaration, TextualError> {
         let value = self.document_evaluator().decode(INTERFACE, block, names)?;
-        let variants = Self::reify_interface_variants(&value)?;
+        let variants = self.reify_interface_variants(&value, names)?;
         let name = names.intern(Name::new(
             role.interface_root_name()
                 .ok_or(TextualError::ReifyShape("interface role"))?,
@@ -670,9 +656,10 @@ impl TextualSchema {
             return Err(TextualError::ReifyShape("declaration name"));
         };
         let encoded_type = match constructor {
-            DeclarationConstructor::Newtype => {
-                EncodedType::Newtype(EncodedNewtype::new(*name, Self::reify_reference(body)?))
-            }
+            DeclarationConstructor::Newtype => EncodedType::Newtype(EncodedNewtype::new(
+                *name,
+                self.reify_reference(body, names)?,
+            )),
             DeclarationConstructor::Struct => {
                 let StructuralValue::Delimited(fields) = body.as_ref() else {
                     return Err(TextualError::ReifyShape("struct fields"));
@@ -741,7 +728,9 @@ impl TextualSchema {
     /// `Name.Payload` entries that [`decode_interface_slot`](Self::decode_interface_slot)
     /// wraps in the role-tagged interface-root declaration.
     fn reify_interface_variants(
+        &self,
         value: &StructuralValue,
+        names: &NameTable,
     ) -> Result<Vec<EncodedVariant>, TextualError> {
         let StructuralValue::Chosen { payload, .. } = value else {
             return Err(TextualError::ReifyShape("interface"));
@@ -749,11 +738,18 @@ impl TextualSchema {
         let StructuralValue::Delimited(entries) = payload.as_ref() else {
             return Err(TextualError::ReifyShape("interface entries"));
         };
-        entries.iter().map(Self::reify_interface_variant).collect()
+        entries
+            .iter()
+            .map(|entry| self.reify_interface_variant(entry, names))
+            .collect()
     }
 
     /// Reify one `Name.Payload` interface entry into a payload-carrying variant.
-    fn reify_interface_variant(entry: &StructuralValue) -> Result<EncodedVariant, TextualError> {
+    fn reify_interface_variant(
+        &self,
+        entry: &StructuralValue,
+        names: &NameTable,
+    ) -> Result<EncodedVariant, TextualError> {
         let StructuralValue::Delegated(inner) = entry else {
             return Err(TextualError::ReifyShape("interface entry delegate"));
         };
@@ -768,7 +764,7 @@ impl TextualSchema {
         };
         Ok(EncodedVariant::new(
             *name,
-            Some(Self::reify_reference(reference)?),
+            Some(self.reify_reference(reference, names)?),
         ))
     }
 
@@ -823,12 +819,6 @@ impl Textual for TextualSchema {
 
     fn structuretree(&self) -> &AddressedStructuralTable {
         &self.table
-    }
-
-    fn lexicon(&self) -> Option<&dyn name_table::NameResolver> {
-        self.lexicon
-            .as_ref()
-            .map(|table| table as &dyn name_table::NameResolver)
     }
 
     fn missing_root_object(&self) -> TextualError {

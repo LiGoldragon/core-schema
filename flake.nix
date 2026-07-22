@@ -18,7 +18,11 @@
         inherit (rust) craneLib toolchain;
         src = rust.cleanSource { root = ./.; };
         commonArguments = { inherit src; strictDeps = true; };
-        cargoArtifacts = craneLib.buildDepsOnly commonArguments;
+        cargoArtifacts = craneLib.buildDepsOnly (commonArguments // {
+          postCheck = ''
+            rm -f target/.rustc_info.json
+          '';
+        });
       in
       {
         packages.default = craneLib.buildPackage (commonArguments // { inherit cargoArtifacts; });
@@ -34,6 +38,7 @@
           doc = craneLib.cargoDoc (commonArguments // {
             inherit cargoArtifacts;
             doInstallCargoArtifacts = false;
+            CARGO_BUILD_JOBS = "1";
             RUSTDOCFLAGS = "-D warnings";
           });
           fmt = craneLib.cargoFmt {

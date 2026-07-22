@@ -51,11 +51,26 @@ impl BuiltinReference {
         }
     }
 
-    /// The builtin denoted by an exact canonical spelling.
-    pub fn from_spelling(spelling: &str) -> Option<Self> {
-        Self::ALL
-            .into_iter()
-            .find(|builtin| builtin.spelling() == spelling)
+    /// The scalar leaf this prior definition denotes, when it is a scalar rather
+    /// than a reference application head.
+    pub fn scalar_reference(self) -> Option<EncodedReference> {
+        match self {
+            Self::Integer => Some(EncodedReference::Integer),
+            Self::String => Some(EncodedReference::String),
+            Self::Boolean => Some(EncodedReference::Boolean),
+            Self::Bytes => Some(EncodedReference::Bytes),
+            Self::Vector | Self::Optional | Self::ScopeOf => None,
+        }
+    }
+
+    /// The single-reference application this prior definition heads, if any.
+    pub fn single_projection(self) -> Option<SingleTypeReferenceProjection> {
+        match self {
+            Self::Vector => Some(SingleTypeReferenceProjection::Vector),
+            Self::Optional => Some(SingleTypeReferenceProjection::Optional),
+            Self::ScopeOf => Some(SingleTypeReferenceProjection::ScopeOf),
+            Self::Integer | Self::String | Self::Boolean | Self::Bytes => None,
+        }
     }
 }
 
@@ -139,20 +154,6 @@ impl EncodedReference {
         names: &Resolver,
     ) -> Result<String, NameTableError> {
         Ok(self.type_name(names)?.field_name())
-    }
-
-    /// Classify a type name met at a reference position into a by-kind reference:
-    /// a scalar keyword becomes the matching leaf, any other name a `Plain`
-    /// reference carrying the identifier the name already interned to. This is the
-    /// decode-side inverse of [`type_name`](Self::type_name).
-    pub fn from_type_name(name: &Name, identifier: Identifier) -> Self {
-        match name.as_str() {
-            "Integer" => Self::Integer,
-            "String" => Self::String,
-            "Boolean" => Self::Boolean,
-            "Bytes" => Self::Bytes,
-            _ => Self::Plain(identifier),
-        }
     }
 
     /// The identifier of the type-name atom this reference presents in text: a

@@ -111,12 +111,8 @@ fn law_three_interning_atomicity() {
 #[test]
 fn law_four_identity_preserving_across_revisions() {
     let family = FixtureFamily::build();
-    let table_old = family
-        .table(Delimiter::Brace, b"lexicon-brace".to_vec(), 1)
-        .expect("old table");
-    let table_new = family
-        .table(Delimiter::Parenthesis, b"lexicon-parenthesis".to_vec(), 2)
-        .expect("new table");
+    let table_old = family.table(Delimiter::Brace, 1).expect("old table");
+    let table_new = family.table(Delimiter::Parenthesis, 2).expect("new table");
     assert_ne!(table_old.identity(), table_new.identity());
     let evaluator_old = StructuralEvaluator::new(&table_old);
     let evaluator_new = StructuralEvaluator::new(&table_new);

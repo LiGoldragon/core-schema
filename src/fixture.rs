@@ -58,7 +58,7 @@ impl FixtureFamily {
     /// Build the family: intern the names, construct the real declarations, and
     /// register every type in the universe.
     pub fn build() -> Self {
-        let mut builder = EncodedUniverseBuilder::new();
+        let mut builder = EncodedUniverseBuilder::new().with_standard_builtins();
 
         // Scalar leaf primitives. `Text` is the string leaf the rejoin chain ends in.
         builder
@@ -156,16 +156,15 @@ impl FixtureFamily {
 
     /// The standard authored structural table (brace newtype bodies).
     pub fn standard_table(&self) -> Result<AddressedStructuralTable, UniverseError> {
-        self.table(Delimiter::Brace, b"fixture-lexicon-standard".to_vec(), 1)
+        self.table(Delimiter::Brace, 1)
     }
 
     /// An authored structural table whose newtype-declaration bodies use `delimiter`.
-    /// Varying the delimiter (with a distinct lexicon and revision) yields a table
-    /// that differs from another only in textual form — the law-4 material.
+    /// Varying the delimiter with the revision yields a table that differs from
+    /// another only in textual form — the law-4 material.
     pub fn table(
         &self,
         delimiter: Delimiter,
-        lexicon: Vec<u8>,
         revision: u32,
     ) -> Result<AddressedStructuralTable, UniverseError> {
         let entries = self
@@ -173,7 +172,7 @@ impl FixtureFamily {
             .into_iter()
             .map(|entry| (entry.core_type, entry))
             .collect();
-        self.seal_entries(entries, lexicon, revision)
+        self.seal_entries(entries, revision)
     }
 
     /// A table whose `CommitSequence` codec signature is deliberately wrong (empty,
@@ -188,7 +187,7 @@ impl FixtureFamily {
         if let Some(entry) = entries.get_mut(&COMMIT_SEQUENCE) {
             entry.constructors[0].signature = PositionalSignature::default();
         }
-        self.seal_entries(entries, b"fixture-lexicon-corrupted".to_vec(), 99)
+        self.seal_entries(entries, 99)
     }
 
     /// The Encoded layout identity these forms target — the schema's own content hash,
@@ -207,14 +206,12 @@ impl FixtureFamily {
     fn seal_entries(
         &self,
         entries: BTreeMap<ScopedEncodedTypeId, StructuralEntry>,
-        lexicon: Vec<u8>,
         revision: u32,
     ) -> Result<AddressedStructuralTable, UniverseError> {
         let payload = TableIdentityPayload {
             core_universe: ENCODED_UNIVERSE,
             core_layout_identity: self.encoded_layout()?,
             raw_profile_identity: RawProfileIdentity([1u8; 32]),
-            committed_lexicon: lexicon,
             leaf_codec_contracts: Vec::new(),
             entries,
         };

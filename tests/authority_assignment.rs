@@ -490,7 +490,7 @@ fn every_builtin_declaration_is_a_typed_archiveable_redefinition() {
     let universe = EncodedUniverseId::new(22);
 
     for builtin in BuiltinReference::ALL {
-        let mut builder = EncodedUniverseBuilder::new();
+        let mut builder = EncodedUniverseBuilder::new().with_standard_builtins();
         let identifier = builder.intern(builtin.spelling()).expect("intern builtin");
         let redefinition = StructuralRedefinition::new(identifier, builtin);
         let bytes = redefinition

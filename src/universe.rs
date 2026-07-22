@@ -85,6 +85,9 @@ pub struct EncodedUniverse {
     members: Vec<UniverseType>,
     by_id: BTreeMap<ScopedEncodedTypeId, usize>,
     by_name: HashMap<Identifier, ScopedEncodedTypeId>,
+    /// Prior standard-universe definitions, indexed by their resolved name. They
+    /// are semantic universe members, never grammar keywords.
+    builtins: HashMap<String, BuiltinReference>,
     integer: Option<ScopedEncodedTypeId>,
     text: Option<ScopedEncodedTypeId>,
     boolean: Option<ScopedEncodedTypeId>,
@@ -256,16 +259,45 @@ impl EncodedUniverse {
         }
     }
 
-    /// A declared type may not reuse a builtin spelling. The name table owns the
-    /// spelling, while the typed [`BuiltinReference`] records exactly which prior
-    /// definition the declaration attempted to replace.
+    /// Resolve a name at a reference position through this universe. A prior
+    /// standard definition becomes its encoded reference; an otherwise unresolved
+    /// name remains a `Plain` pre-resolution reference until declaration admission
+    /// or a later universe seal resolves it.
+    pub fn reference_from_name(
+        &self,
+        identifier: Identifier,
+        names: &NameTable,
+    ) -> Result<EncodedReference, UniverseError> {
+        Self::validate_schema_identifier(identifier)?;
+        let name = names.resolve(identifier)?;
+        Ok(self
+            .builtins
+            .get(name.as_str())
+            .and_then(|builtin| builtin.scalar_reference())
+            .unwrap_or(EncodedReference::Plain(identifier)))
+    }
+
+    /// Resolve an application head through prior standard-universe definitions.
+    pub fn builtin_from_name(
+        &self,
+        identifier: Identifier,
+        names: &NameTable,
+    ) -> Result<Option<BuiltinReference>, UniverseError> {
+        Self::validate_schema_identifier(identifier)?;
+        Ok(self
+            .builtins
+            .get(names.resolve(identifier)?.as_str())
+            .copied())
+    }
+
+    /// Reject a declaration that attempts to replace a prior standard-universe
+    /// definition. The typed error retains both identities for archival.
     pub fn validate_declaration_name(
+        &self,
         identifier: Identifier,
         names: &NameTable,
     ) -> Result<(), UniverseError> {
-        Self::validate_schema_identifier(identifier)?;
-        let name = names.resolve(identifier)?;
-        if let Some(builtin) = BuiltinReference::from_spelling(name.as_str()) {
+        if let Some(builtin) = self.builtin_from_name(identifier, names)? {
             return Err(crate::error::StructuralRedefinition::new(identifier, builtin).into());
         }
         Ok(())
@@ -283,7 +315,6 @@ impl EncodedUniverse {
             names.resolve(identifier)?;
             Ok::<_, UniverseError>(())
         };
-        Self::validate_declaration_name(declaration.identifier(), names)?;
         match declaration.value() {
             EncodedType::Newtype(newtype) => Self::validate_reference_identifiers(
                 newtype.reference(),
@@ -523,6 +554,7 @@ pub struct EncodedUniverseBuilder {
     names: NameTable,
     members: Vec<UniverseType>,
     scalar_registrations: Vec<(ScalarSlot, ScopedEncodedTypeId)>,
+    builtins: Vec<BuiltinReference>,
 }
 
 /// Which scalar leaf a primitive registration fills. Naming the slot as data keeps
@@ -541,6 +573,7 @@ impl Default for EncodedUniverseBuilder {
             names: NameTable::new(IdentifierNamespace::Schema),
             members: Vec::new(),
             scalar_registrations: Vec::new(),
+            builtins: Vec::new(),
         }
     }
 }
@@ -557,7 +590,15 @@ impl EncodedUniverseBuilder {
             names,
             members: Vec::new(),
             scalar_registrations: Vec::new(),
+            builtins: Vec::new(),
         }
+    }
+
+    /// Install every prior standard-universe definition. Their names are semantic
+    /// universe data, not syntax reservations.
+    pub fn with_standard_builtins(mut self) -> Self {
+        self.builtins.extend(BuiltinReference::ALL);
+        self
     }
 
     pub fn names(&self) -> &NameTable {
@@ -659,6 +700,13 @@ impl EncodedUniverseBuilder {
             });
         }
 
+        let builtins: HashMap<String, BuiltinReference> = self
+            .builtins
+            .iter()
+            .copied()
+            .map(|builtin| (builtin.spelling().to_owned(), builtin))
+            .collect();
+
         let mut member_ids = BTreeSet::new();
         let mut member_names = HashSet::new();
         for member in &self.members {
@@ -666,6 +714,11 @@ impl EncodedUniverseBuilder {
             self.names.resolve(member.name)?;
             EncodedUniverse::validate_scoped_type_id(universe, member.id)?;
             if let MemberKind::Declaration(declaration) = &member.kind {
+                if let Some(builtin) = builtins.get(self.names.resolve(member.name)?.as_str()) {
+                    return Err(
+                        crate::error::StructuralRedefinition::new(member.name, *builtin).into(),
+                    );
+                }
                 if declaration.identifier() != member.name {
                     return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
                         assigned: member.name,
@@ -718,6 +771,7 @@ impl EncodedUniverseBuilder {
             members: self.members,
             by_id,
             by_name,
+            builtins,
         })
     }
 }
