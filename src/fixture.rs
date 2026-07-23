@@ -17,15 +17,13 @@ use std::collections::BTreeMap;
 
 use raw_discovery::Delimiter;
 use structural_codec::authoring::{AuthoringForm, ObjectSymbolPrefixedBlock};
-use structural_codec::ids::{
-    EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId, StructuralRevision,
-};
+use structural_codec::ids::{EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId};
 use structural_codec::table::{
     AddressedStructuralTable, EncodedLayoutIdentity, RawProfileIdentity, TableIdentityPayload,
 };
 use structural_codec::{
-    AtomForm, CaseExpectation, ConstructorCodec, LeafForm, ScalarLeaf, SequenceForm,
-    StructuralEntry, StructuralForm,
+    AtomCase, AtomForm, ConstructorCodec, LeafForm, ScalarLeaf, SequenceForm, StructuralEntry,
+    StructuralForm,
 };
 
 use crate::declaration::{
@@ -156,23 +154,19 @@ impl FixtureFamily {
 
     /// The standard authored structural table (brace newtype bodies).
     pub fn standard_table(&self) -> Result<AddressedStructuralTable, UniverseError> {
-        self.table(Delimiter::Brace, 1)
+        self.table(Delimiter::Brace)
     }
 
     /// An authored structural table whose newtype-declaration bodies use `delimiter`.
-    /// Varying the delimiter with the revision yields a table that differs from
-    /// another only in textual form — the law-4 material.
-    pub fn table(
-        &self,
-        delimiter: Delimiter,
-        revision: u32,
-    ) -> Result<AddressedStructuralTable, UniverseError> {
+    /// Varying the delimiter yields a table that differs from another only in textual
+    /// form — the law-4 material.
+    pub fn table(&self, delimiter: Delimiter) -> Result<AddressedStructuralTable, UniverseError> {
         let entries = self
             .entries(delimiter)
             .into_iter()
             .map(|entry| (entry.core_type, entry))
             .collect();
-        self.seal_entries(entries, revision)
+        self.seal_entries(entries)
     }
 
     /// A table whose `CommitSequence` codec signature is deliberately wrong (empty,
@@ -187,7 +181,7 @@ impl FixtureFamily {
         if let Some(entry) = entries.get_mut(&COMMIT_SEQUENCE) {
             entry.constructors[0].signature = PositionalSignature::default();
         }
-        self.seal_entries(entries, 99)
+        self.seal_entries(entries)
     }
 
     /// The Encoded layout identity these forms target — the schema's own content hash,
@@ -206,7 +200,6 @@ impl FixtureFamily {
     fn seal_entries(
         &self,
         entries: BTreeMap<ScopedEncodedTypeId, StructuralEntry>,
-        revision: u32,
     ) -> Result<AddressedStructuralTable, UniverseError> {
         let payload = TableIdentityPayload {
             core_universe: ENCODED_UNIVERSE,
@@ -215,10 +208,7 @@ impl FixtureFamily {
             leaf_codec_contracts: Vec::new(),
             entries,
         };
-        Ok(AddressedStructuralTable::seal(
-            StructuralRevision::new(revision),
-            payload,
-        )?)
+        Ok(AddressedStructuralTable::seal(payload)?)
     }
 
     /// The authored structural entries. Signatures are written explicitly here — as
@@ -258,7 +248,7 @@ impl FixtureFamily {
         core_type: ScopedEncodedTypeId,
         inner: ScopedEncodedTypeId,
     ) -> StructuralEntry {
-        let form = StructuralForm::Delegate(inner);
+        let form = StructuralForm::delegate(inner);
         StructuralEntry::new(
             core_type,
             vec![ConstructorCodec::new(
@@ -279,7 +269,7 @@ impl FixtureFamily {
         delimiter: Delimiter,
     ) -> StructuralEntry {
         let form = AuthoringForm::ObjectPrefixed(ObjectSymbolPrefixedBlock {
-            object: AtomForm::with_case(CaseExpectation::PascalCase),
+            object: AtomForm::with_case(AtomCase::PascalCase),
             delimiter,
             sequence: SequenceForm::Product(vec![StructuralForm::pascal_atom()]),
         })
@@ -306,7 +296,7 @@ impl FixtureFamily {
             StructuralForm::Delimited {
                 delimiter: Delimiter::Brace,
                 sequence: SequenceForm::Product(
-                    std::iter::repeat_with(|| StructuralForm::Delegate(FIELD))
+                    std::iter::repeat_with(|| StructuralForm::delegate(FIELD))
                         .take(field_count)
                         .collect(),
                 ),

@@ -20,9 +20,7 @@
 use std::collections::BTreeMap;
 
 use raw_discovery::Delimiter;
-use structural_codec::ids::{
-    EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId, StructuralRevision,
-};
+use structural_codec::ids::{EncodedConstructorId, PositionalSignature, ScopedEncodedTypeId};
 use structural_codec::table::{
     AddressedStructuralTable, EncodedLayoutIdentity, RawProfileIdentity, TableIdentityPayload,
 };
@@ -134,7 +132,7 @@ impl SchemaDocumentGrammar {
             leaf_codec_contracts: Vec::new(),
             entries,
         };
-        let table = AddressedStructuralTable::seal(StructuralRevision::new(3), payload)?;
+        let table = AddressedStructuralTable::seal(payload)?;
         Ok(Self { table })
     }
 
@@ -159,7 +157,7 @@ impl DocumentTableAuthor {
                 ReferenceConstructor::Application,
                 StructuralForm::application(
                     StructuralForm::pascal_atom(),
-                    StructuralForm::Delegate(TYPE_REFERENCE),
+                    StructuralForm::delegate(TYPE_REFERENCE),
                 ),
             ),
         ])
@@ -234,13 +232,13 @@ impl DocumentTableAuthor {
     fn declaration_entry(&self) -> StructuralEntry {
         let newtype = StructuralForm::application(
             StructuralForm::pascal_atom(),
-            StructuralForm::Delegate(TYPE_REFERENCE),
+            StructuralForm::delegate(TYPE_REFERENCE),
         );
         let structure = StructuralForm::application(
             StructuralForm::pascal_atom(),
             StructuralForm::Delimited {
                 delimiter: Delimiter::Brace,
-                sequence: SequenceForm::zero_or_more(StructuralForm::Delegate(FIELD)),
+                sequence: SequenceForm::zero_or_more(StructuralForm::delegate(FIELD)),
             },
         );
         let enumeration = StructuralForm::application(
@@ -272,7 +270,7 @@ impl DocumentTableAuthor {
             TYPES_BLOCK,
             StructuralForm::Delimited {
                 delimiter: Delimiter::Brace,
-                sequence: SequenceForm::zero_or_more(StructuralForm::Delegate(DECLARATION)),
+                sequence: SequenceForm::zero_or_more(StructuralForm::delegate(DECLARATION)),
             },
         )
     }
@@ -283,7 +281,7 @@ impl DocumentTableAuthor {
             INTERFACE_VARIANT,
             StructuralForm::application(
                 StructuralForm::pascal_atom(),
-                StructuralForm::Delegate(TYPE_REFERENCE),
+                StructuralForm::delegate(TYPE_REFERENCE),
             ),
         )
     }
@@ -294,7 +292,7 @@ impl DocumentTableAuthor {
             INTERFACE,
             StructuralForm::Delimited {
                 delimiter: Delimiter::SquareBracket,
-                sequence: SequenceForm::zero_or_more(StructuralForm::Delegate(INTERFACE_VARIANT)),
+                sequence: SequenceForm::zero_or_more(StructuralForm::delegate(INTERFACE_VARIANT)),
             },
         )
     }
