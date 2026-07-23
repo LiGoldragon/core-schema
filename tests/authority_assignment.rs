@@ -477,9 +477,105 @@ fn direct_builder_seal_resolves_registered_scalar_and_plain_targets() {
     );
 }
 
-/// A builtin is a mandatory prior definition at the direct-builder seal,
-/// independent of whether a scalar member is present. The actual rejection is
-/// archiveable typed data rather than a collapsed diagnostic string.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum BuiltinWitnessMember {
+    Scalar(ScalarSlot),
+    LeafPrimitive,
+    FieldMeta,
+    Declaration,
+}
+
+impl BuiltinWitnessMember {
+    const ALL: [Self; 7] = [
+        Self::Scalar(ScalarSlot::Integer),
+        Self::Scalar(ScalarSlot::Text),
+        Self::Scalar(ScalarSlot::Boolean),
+        Self::Scalar(ScalarSlot::Bytes),
+        Self::LeafPrimitive,
+        Self::FieldMeta,
+        Self::Declaration,
+    ];
+}
+
+fn builtin_scalar_slot(builtin: BuiltinReference) -> Option<ScalarSlot> {
+    match builtin {
+        BuiltinReference::Integer => Some(ScalarSlot::Integer),
+        BuiltinReference::String => Some(ScalarSlot::Text),
+        BuiltinReference::Boolean => Some(ScalarSlot::Boolean),
+        BuiltinReference::Bytes => Some(ScalarSlot::Bytes),
+        BuiltinReference::Vector | BuiltinReference::Optional | BuiltinReference::ScopeOf => None,
+    }
+}
+
+fn is_sanctioned_builtin_member(builtin: BuiltinReference, member: BuiltinWitnessMember) -> bool {
+    matches!(member, BuiltinWitnessMember::Scalar(slot) if Some(slot) == builtin_scalar_slot(builtin))
+}
+
+fn builtin_declaration(identifier: Identifier) -> EncodedDeclaration {
+    EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
+        identifier,
+        Vec::new(),
+    )))
+}
+
+fn assert_archiveable_redefinition(
+    result: Result<EncodedUniverse, UniverseError>,
+    identifier: Identifier,
+    builtin: BuiltinReference,
+) {
+    let UniverseError::Redefinition(redefinition) =
+        result.expect_err("a nonsanctioned builtin member cannot seal")
+    else {
+        panic!(
+            "{} must reject with StructuralRedefinition",
+            builtin.spelling()
+        );
+    };
+    assert_eq!(redefinition.identifier(), identifier);
+    assert_eq!(redefinition.builtin(), builtin);
+    let bytes = redefinition
+        .to_archive_bytes()
+        .expect("archive typed redefinition");
+    assert_eq!(
+        StructuralRedefinition::from_archive_bytes(&bytes).expect("load typed redefinition"),
+        redefinition,
+    );
+}
+
+fn direct_builder_builtin_member(
+    universe: EncodedUniverseId,
+    builtin: BuiltinReference,
+    member: BuiltinWitnessMember,
+) -> (Identifier, Result<EncodedUniverse, UniverseError>) {
+    let mut builder = EncodedUniverseBuilder::new();
+    let identifier = builder.intern(builtin.spelling()).expect("intern builtin");
+    let id = ScopedEncodedTypeId::new(universe, 0);
+    match member {
+        BuiltinWitnessMember::Scalar(slot) => builder.primitive_at(id, identifier, slot),
+        BuiltinWitnessMember::LeafPrimitive => builder.leaf_at(id, identifier),
+        BuiltinWitnessMember::FieldMeta => builder.field_meta_at(id, identifier),
+        BuiltinWitnessMember::Declaration => {
+            builder.declaration(id, builtin_declaration(identifier))
+        }
+    }
+    (identifier, builder.build(universe))
+}
+
+fn assigned_builtin_member(identifier: Identifier, member: BuiltinWitnessMember) -> AssignedMember {
+    let kind = match member {
+        BuiltinWitnessMember::Scalar(slot) => AssignedKind::ScalarPrimitive(slot),
+        BuiltinWitnessMember::LeafPrimitive => AssignedKind::LeafPrimitive,
+        BuiltinWitnessMember::FieldMeta => AssignedKind::FieldMeta,
+        BuiltinWitnessMember::Declaration => {
+            AssignedKind::Declaration(builtin_declaration(identifier))
+        }
+    };
+    AssignedMember::new(0, identifier, kind)
+}
+
+/// A builtin is a mandatory prior definition at the direct-builder seal. The only
+/// admitted member under a scalar builtin spelling is its matching scalar-slot
+/// realization; every other member is archiveable typed rejection data.
 #[test]
 fn direct_builder_rejects_every_builtin_as_an_archiveable_redefinition() {
     assert_eq!(
@@ -490,54 +586,14 @@ fn direct_builder_rejects_every_builtin_as_an_archiveable_redefinition() {
     let universe = EncodedUniverseId::new(22);
 
     for builtin in BuiltinReference::ALL {
-        let mut builder = EncodedUniverseBuilder::new();
-        let identifier = builder.intern(builtin.spelling()).expect("intern builtin");
-        builder.declaration(
-            ScopedEncodedTypeId::new(universe, 0),
-            EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
-                identifier,
-                Vec::new(),
-            ))),
-        );
-
-        let UniverseError::Redefinition(redefinition) = builder
-            .build(universe)
-            .expect_err("a builtin declaration cannot seal through the direct builder")
-        else {
-            panic!(
-                "{} must reject with StructuralRedefinition",
-                builtin.spelling()
-            );
-        };
-        assert_eq!(redefinition.identifier(), identifier);
-        assert_eq!(redefinition.builtin(), builtin);
-        let bytes = redefinition
-            .to_archive_bytes()
-            .expect("archive typed redefinition");
-        assert_eq!(
-            StructuralRedefinition::from_archive_bytes(&bytes).expect("load typed redefinition"),
-            redefinition,
-        );
-
-        let (names, identifiers) = schema_table(&[builtin.spelling()]);
-        let identifier = identifiers[0];
-        let mut builder = EncodedUniverseBuilder::from_name_table(names);
-        builder.declaration(
-            ScopedEncodedTypeId::new(universe, 0),
-            EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
-                identifier,
-                Vec::new(),
-            ))),
-        );
-        assert!(
-            matches!(
-                builder.build(universe),
-                Err(UniverseError::Redefinition(actual))
-                    if actual.identifier() == identifier && actual.builtin() == builtin
-            ),
-            "{} is also rejected by the supplied-table builder route",
-            builtin.spelling(),
-        );
+        for member in BuiltinWitnessMember::ALL {
+            let (identifier, result) = direct_builder_builtin_member(universe, builtin, member);
+            if is_sanctioned_builtin_member(builtin, member) {
+                result.expect("the matching scalar-slot builtin realization seals");
+            } else {
+                assert_archiveable_redefinition(result, identifier, builtin);
+            }
+        }
     }
 }
 
@@ -549,35 +605,19 @@ fn from_assignment_rejects_every_builtin_as_an_archiveable_redefinition() {
     let universe = EncodedUniverseId::new(23);
 
     for builtin in BuiltinReference::ALL {
-        let (names, identifiers) = schema_table(&[builtin.spelling()]);
-        let identifier = identifiers[0];
-        let declaration = EncodedDeclaration::public(EncodedType::Enumeration(EncodedEnum::new(
-            identifier,
-            Vec::new(),
-        )));
-        let UniverseError::Redefinition(redefinition) = EncodedUniverse::from_assignment(
-            universe,
-            vec![AssignedMember::new(
-                0,
-                identifier,
-                AssignedKind::Declaration(declaration),
-            )],
-            names,
-        )
-        .expect_err("a builtin declaration cannot seal through an authority assignment") else {
-            panic!(
-                "{} must reject with StructuralRedefinition",
-                builtin.spelling()
+        for member in BuiltinWitnessMember::ALL {
+            let (names, identifiers) = schema_table(&[builtin.spelling()]);
+            let identifier = identifiers[0];
+            let result = EncodedUniverse::from_assignment(
+                universe,
+                vec![assigned_builtin_member(identifier, member)],
+                names,
             );
-        };
-        assert_eq!(redefinition.identifier(), identifier);
-        assert_eq!(redefinition.builtin(), builtin);
-        let bytes = redefinition
-            .to_archive_bytes()
-            .expect("archive typed redefinition");
-        assert_eq!(
-            StructuralRedefinition::from_archive_bytes(&bytes).expect("load typed redefinition"),
-            redefinition,
-        );
+            if is_sanctioned_builtin_member(builtin, member) {
+                result.expect("the matching scalar-slot builtin realization seals");
+            } else {
+                assert_archiveable_redefinition(result, identifier, builtin);
+            }
+        }
     }
 }

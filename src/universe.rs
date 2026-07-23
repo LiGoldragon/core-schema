@@ -626,6 +626,35 @@ impl EncodedUniverseBuilder {
         self.members.push(UniverseType { id, name, kind });
     }
 
+    /// Whether this member is the one scalar-slot realization permitted for a
+    /// scalar builtin prior. Every other member under a builtin spelling is a
+    /// structural redefinition.
+    fn is_sanctioned_builtin_scalar(
+        &self,
+        member: &UniverseType,
+        builtin: BuiltinReference,
+    ) -> bool {
+        let required_slot = match builtin {
+            BuiltinReference::Integer => Some(ScalarSlot::Integer),
+            BuiltinReference::String => Some(ScalarSlot::Text),
+            BuiltinReference::Boolean => Some(ScalarSlot::Boolean),
+            BuiltinReference::Bytes => Some(ScalarSlot::Bytes),
+            BuiltinReference::Vector | BuiltinReference::Optional | BuiltinReference::ScopeOf => {
+                None
+            }
+        };
+
+        match &member.kind {
+            MemberKind::Primitive => required_slot.is_some_and(|slot| {
+                self.scalar_registrations
+                    .iter()
+                    .any(|(registered, id)| *registered == slot && *id == member.id)
+            }),
+            MemberKind::FieldMeta => false,
+            MemberKind::Declaration(_) => false,
+        }
+    }
+
     /// Register a scalar leaf primitive under a well-known name and scalar slot.
     pub fn primitive(
         &mut self,
@@ -703,14 +732,16 @@ impl EncodedUniverseBuilder {
         let mut member_names = HashSet::new();
         for member in &self.members {
             EncodedUniverse::validate_schema_identifier(member.name)?;
-            self.names.resolve(member.name)?;
+            let resolved_name = self.names.resolve(member.name)?;
             EncodedUniverse::validate_scoped_type_id(universe, member.id)?;
-            if let MemberKind::Declaration(declaration) = &member.kind {
-                if let Some(builtin) = builtins.get(self.names.resolve(member.name)?.as_str()) {
+            if let Some(builtin) = builtins.get(resolved_name.as_str()) {
+                if !self.is_sanctioned_builtin_scalar(member, *builtin) {
                     return Err(
                         crate::error::StructuralRedefinition::new(member.name, *builtin).into(),
                     );
                 }
+            }
+            if let MemberKind::Declaration(declaration) = &member.kind {
                 if declaration.identifier() != member.name {
                     return Err(UniverseError::AssignedDeclarationIdentifierMismatch {
                         assigned: member.name,
